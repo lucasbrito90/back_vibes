@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['user_id', 'name', 'type', 'provider', 'external_id', 'metadata'])]
-class Device extends Model
+final class Device extends Model
 {
     use HasFactory;
 

@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Pivot;
 
-class VibeSound extends Pivot
+final class VibeSound extends Pivot
 {
     public $timestamps = false;
 

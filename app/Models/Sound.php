@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 #[Fillable(['name', 'file_url', 'category', 'duration'])]
-class Sound extends Model
+final class Sound extends Model
 {
     use HasFactory;
 

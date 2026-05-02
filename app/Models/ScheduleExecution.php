@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable(['schedule_id', 'executed_at', 'status', 'log'])]
-class ScheduleExecution extends Model
+final class ScheduleExecution extends Model
 {
     use HasFactory;
 

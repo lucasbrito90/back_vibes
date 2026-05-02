@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable(['user_id', 'vibe_id', 'name', 'start_time', 'recurrence_type', 'recurrence_config', 'is_enabled'])]
-class Schedule extends Model
+final class Schedule extends Model
 {
     use HasFactory;
 

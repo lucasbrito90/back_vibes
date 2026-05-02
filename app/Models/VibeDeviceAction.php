@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable(['vibe_id', 'device_id', 'action_type', 'parameters', 'delay_seconds'])]
-class VibeDeviceAction extends Model
+final class VibeDeviceAction extends Model
 {
     use HasFactory;
 
