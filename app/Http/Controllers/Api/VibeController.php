@@ -15,9 +15,12 @@ use Illuminate\Routing\Attributes\Controllers\Authorize;
 
 class VibeController extends Controller
 {
-    #[Authorize('viewAny', Vibe::class)]
+    use AuthorizesRequests;
+
     public function index(Request $request): AnonymousResourceCollection
     {
+        $this->authorize('viewAny', Vibe::class);
+
         $vibes = Vibe::where('user_id', $request->user()->id)
             ->latest()
             ->get();
@@ -25,9 +28,10 @@ class VibeController extends Controller
         return VibeResource::collection($vibes);
     }
 
-    #[Authorize('create', Vibe::class)]
     public function store(StoreVibeRequest $request): VibeResource
     {
+        $this->authorize('create', Vibe::class);
+
         $vibe = Vibe::create([
             ...$request->validated(),
             'user_id' => $request->user()->id,
@@ -36,23 +40,26 @@ class VibeController extends Controller
         return new VibeResource($vibe);
     }
 
-    #[Authorize('view', Vibe::class)]
     public function show(Request $request, Vibe $vibe): VibeResource
     {
+        $this->authorize('view', $vibe);
+
         return new VibeResource($vibe);
     }
 
-    #[Authorize('update', Vibe::class)]
     public function update(UpdateVibeRequest $request, Vibe $vibe): VibeResource
     {
+        $this->authorize('update', $vibe);
+
         $vibe->update($request->validated());
 
         return new VibeResource($vibe);
     }
 
-    #[Authorize('delete', Vibe::class)]
     public function destroy(Request $request, Vibe $vibe): JsonResponse
     {
+        $this->authorize('delete', $vibe);
+
         $vibe->delete();
 
         return response()->json(['message' => 'Vibe deleted.']);

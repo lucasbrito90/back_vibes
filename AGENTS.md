@@ -132,7 +132,18 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 
 - For APIs, use Eloquent API Resources to transform model data into JSON. Controllers return resources: `new VibeResource($vibe)` for single items and `VibeResource::collection($vibes)` for collections.
 - Use `apiResource` routes in `routes/api.php` for RESTful endpoints: `Route::apiResource('vibes', VibeController::class)`.
-- Controllers should be under `App\Http\Controllers\Api\` and use the `#[Authorize(...)]` attribute to declare required permissions before the method.
+- Controllers should be under `App\Http\Controllers\Api\`.
+
+## Authorization in Controllers
+
+- **Use `#[Authorize(...)]` attribute only for actions that don't require a specific model instance**:
+  - `#[Authorize('viewAny', Vibe::class)]` - for listing/index actions
+  - `#[Authorize('create', Vibe::class)]` - for create actions
+- **Use `$this->authorize()` method for actions that require a model instance**:
+  - `$this->authorize('view', $vibe)` - for show/view actions
+  - `$this->authorize('update', $vibe)` - for update actions
+  - `$this->authorize('delete', $vibe)` - for delete actions
+- The difference: The `#[Authorize]` attribute doesn't have access to route parameters, so it can't pass model instances to policy methods that expect them.
 
 ## URL Generation
 
