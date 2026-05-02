@@ -7,22 +7,27 @@ The Laravel Boost guidelines are specifically curated by Laravel maintainers for
 
 ## Foundational Context
 
-This application is a Laravel application and its main Laravel ecosystems package & versions are below. You are an expert with them all. Ensure you abide by these specific packages & versions.
+This application is a Laravel REST API backend and its main Laravel ecosystems package & versions are below. You are an expert with them all. Ensure you abide by these specific packages & versions.
 
 - php - 8.4
 - laravel/framework (LARAVEL) - v13
-- laravel/prompts (PROMPTS) - v0
 - laravel/boost (BOOST) - v2
-- laravel/mcp (MCP) - v0
-- laravel/pail (PAIL) - v1
-- laravel/pint (PINT) - v1
+- kreait/laravel-firebase (FIREBASE) - ^7.1
+- laravel/tinker - ^3.0
 - pestphp/pest (PEST) - v4
 - phpunit/phpunit (PHPUNIT) - v12
 - tailwindcss (TAILWINDCSS) - v4
 
+**Database**: SQLite (`database/database.sqlite`)
+
 ## Skills Activation
 
 This project has domain-specific skills available in `**/skills/**`. You MUST activate the relevant skill whenever you work in that domain—don't wait until you're stuck.
+
+**Active skills** (configured in `boost.json`):
+- `laravel-best-practices`
+- `pest-testing`
+- `tailwindcss-development`
 
 ## Conventions
 
@@ -38,6 +43,9 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 
 - Stick to existing directory structure; don't create new base folders without approval.
 - Do not change the application's dependencies without approval.
+- **API Structure**: Controllers are namespaced under `App\Http\Controllers\Api\` with RESTful routes defined in `routes/api.php`.
+- **Authorization**: Uses Laravel Policies (in `app/Policies/`) with the `#[Authorize]` attribute on controller methods (e.g., `#[Authorize('viewAny', Vibe::class)]`). Policies include comments for scoping guidance (e.g., controllers must scope queries by `auth()->id()`).
+- **Authentication**: Firebase-based auth via `kreait/laravel-firebase`. The `FirebaseAuthenticate` middleware validates tokens and logs in users via the `User` model with `firebase_uid` field.
 
 ## Frontend Bundling
 
@@ -100,6 +108,7 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 - Use TitleCase for Enum keys: `FavoritePerson`, `BestLake`, `Monthly`.
 - Prefer PHPDoc blocks over inline comments. Only add inline comments for exceptionally complex logic.
 - Use array shape type definitions in PHPDoc blocks.
+- **Model declarations**: Use the `final` keyword on models (e.g., `final class Vibe extends Model`) and the `#[Fillable(['field1', 'field2'])]` attribute for field mass-assignment instead of `$fillable` property.
 
 === deployments rules ===
 
@@ -121,7 +130,9 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 
 ## APIs & Eloquent Resources
 
-- For APIs, default to using Eloquent API Resources and API versioning unless existing API routes do not, then you should follow existing application convention.
+- For APIs, use Eloquent API Resources to transform model data into JSON. Controllers return resources: `new VibeResource($vibe)` for single items and `VibeResource::collection($vibes)` for collections.
+- Use `apiResource` routes in `routes/api.php` for RESTful endpoints: `Route::apiResource('vibes', VibeController::class)`.
+- Controllers should be under `App\Http\Controllers\Api\` and use the `#[Authorize(...)]` attribute to declare required permissions before the method.
 
 ## URL Generation
 
