@@ -17,6 +17,8 @@ return new class extends Migration
             $table->string('external_id');
             $table->json('metadata')->nullable();
             $table->timestamp('created_at')->useCurrent();
+
+            $table->index(['user_id', 'provider', 'external_id']);
         });
     }
 

@@ -14,6 +14,14 @@ class UserSettings extends Model
 
     const UPDATED_AT = null;
 
+    protected function casts(): array
+    {
+        return [
+            'default_volume'      => 'integer',
+            'sleep_timer_default' => 'integer',
+        ];
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

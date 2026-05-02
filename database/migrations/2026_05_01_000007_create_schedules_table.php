@@ -18,6 +18,9 @@ return new class extends Migration
             $table->json('recurrence_config')->nullable();
             $table->boolean('is_enabled')->default(true);
             $table->timestamp('created_at')->useCurrent();
+
+            $table->index(['user_id', 'is_enabled']);
+            $table->index(['user_id', 'start_time']);
         });
     }
 

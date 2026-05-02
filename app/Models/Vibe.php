@@ -14,6 +14,13 @@ class Vibe extends Model
 {
     use HasFactory;
 
+    protected function casts(): array
+    {
+        return [
+            'is_active' => 'boolean',
+        ];
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
@@ -22,8 +29,9 @@ class Vibe extends Model
     public function sounds(): BelongsToMany
     {
         return $this->belongsToMany(Sound::class, 'vibe_sounds')
-            ->withPivot(['volume', 'loop', 'order'])
-            ->using(VibeSound::class);
+            ->withPivot(['volume', 'loop', 'sort_order'])
+            ->using(VibeSound::class)
+            ->orderByPivot('sort_order');
     }
 
     public function deviceActions(): HasMany

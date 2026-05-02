@@ -7,6 +7,10 @@ use App\Models\User;
 
 class SchedulePolicy
 {
+    /**
+     * Controllers must scope listing queries by auth()->id().
+     * This gate only confirms the user is authenticated.
+     */
     public function viewAny(User $user): bool
     {
         return true;
