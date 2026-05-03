@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
-#[Fillable(['name', 'file_url', 'category', 'duration'])]
+#[Fillable(['name', 'file_url', 'thumbnail_url', 'category', 'duration'])]
 final class Sound extends Model
 {
     use HasFactory;
@@ -17,7 +17,7 @@ final class Sound extends Model
     public function vibes(): BelongsToMany
     {
         return $this->belongsToMany(Vibe::class, 'vibe_sounds')
-            ->withPivot(['volume', 'loop', 'order'])
+            ->withPivot(['volume', 'loop', 'sort_order'])
             ->using(VibeSound::class);
     }
 }

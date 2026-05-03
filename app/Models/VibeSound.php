@@ -7,18 +7,35 @@ use Illuminate\Database\Eloquent\Relations\Pivot;
 
 final class VibeSound extends Pivot
 {
-    public $timestamps = false;
+    public $timestamps = true;
 
     protected $table = 'vibe_sounds';
 
-    protected $fillable = ['vibe_id', 'sound_id', 'volume', 'loop', 'sort_order'];
+    protected $fillable = [
+        'vibe_id',
+        'sound_id',
+        'volume',
+        'loop',
+        'sort_order',
+        'play_mode',
+        'repeat_interval_seconds',
+        'start_offset_seconds',
+        'play_duration_seconds',
+        'fade_in_seconds',
+        'fade_out_seconds',
+    ];
 
     protected function casts(): array
     {
         return [
-            'volume'     => 'integer',
-            'loop'       => 'boolean',
-            'sort_order' => 'integer',
+            'volume'                  => 'integer',
+            'loop'                    => 'boolean',
+            'sort_order'              => 'integer',
+            'repeat_interval_seconds' => 'integer',
+            'start_offset_seconds'    => 'integer',
+            'play_duration_seconds'   => 'integer',
+            'fade_in_seconds'         => 'integer',
+            'fade_out_seconds'        => 'integer',
         ];
     }
 
