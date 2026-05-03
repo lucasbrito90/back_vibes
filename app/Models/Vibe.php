@@ -33,6 +33,8 @@ final class Vibe extends Model
                 'volume',
                 'loop',
                 'sort_order',
+                'play_mode',
+                'repeat_interval_seconds',
                 'start_offset_seconds',
                 'play_duration_seconds',
                 'fade_in_seconds',

@@ -17,6 +17,8 @@ final class VibeSound extends Pivot
         'volume',
         'loop',
         'sort_order',
+        'play_mode',
+        'repeat_interval_seconds',
         'start_offset_seconds',
         'play_duration_seconds',
         'fade_in_seconds',
@@ -26,13 +28,14 @@ final class VibeSound extends Pivot
     protected function casts(): array
     {
         return [
-            'volume'               => 'integer',
-            'loop'                 => 'boolean',
-            'sort_order'           => 'integer',
-            'start_offset_seconds' => 'integer',
-            'play_duration_seconds'=> 'integer',
-            'fade_in_seconds'      => 'integer',
-            'fade_out_seconds'     => 'integer',
+            'volume'                  => 'integer',
+            'loop'                    => 'boolean',
+            'sort_order'              => 'integer',
+            'repeat_interval_seconds' => 'integer',
+            'start_offset_seconds'    => 'integer',
+            'play_duration_seconds'   => 'integer',
+            'fade_in_seconds'         => 'integer',
+            'fade_out_seconds'        => 'integer',
         ];
     }
 
