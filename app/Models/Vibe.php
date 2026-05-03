@@ -29,7 +29,15 @@ final class Vibe extends Model
     public function sounds(): BelongsToMany
     {
         return $this->belongsToMany(Sound::class, 'vibe_sounds')
-            ->withPivot(['volume', 'loop', 'sort_order'])
+            ->withPivot([
+                'volume',
+                'loop',
+                'sort_order',
+                'start_offset_seconds',
+                'play_duration_seconds',
+                'fade_in_seconds',
+                'fade_out_seconds',
+            ])
             ->using(VibeSound::class)
             ->orderByPivot('sort_order');
     }
