@@ -9,6 +9,8 @@ final class VibeSound extends Pivot
 {
     public $timestamps = false;
 
+    public const UPDATED_AT = null;
+
     protected $table = 'vibe_sounds';
 
     protected $fillable = ['vibe_id', 'sound_id', 'volume', 'loop', 'sort_order'];
