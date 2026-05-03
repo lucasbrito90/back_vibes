@@ -7,9 +7,7 @@ use Illuminate\Database\Eloquent\Relations\Pivot;
 
 final class VibeSound extends Pivot
 {
-    public $timestamps = false;
-
-    public const UPDATED_AT = null;
+    public $timestamps = true;
 
     protected $table = 'vibe_sounds';
 
