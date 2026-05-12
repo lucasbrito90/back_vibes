@@ -22,6 +22,7 @@ class VibeController extends Controller
         $this->authorize('viewAny', Vibe::class);
 
         $vibes = Vibe::where('user_id', $request->user()->id)
+            ->withCount('sounds')
             ->latest()
             ->get();
 
@@ -43,6 +44,8 @@ class VibeController extends Controller
     public function show(Request $request, Vibe $vibe): VibeResource
     {
         $this->authorize('view', $vibe);
+
+        $vibe->loadCount('sounds');
 
         return new VibeResource($vibe);
     }
