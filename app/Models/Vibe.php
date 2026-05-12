@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['user_id', 'name', 'description', 'thumbnail_url', 'is_active'])]
+#[Fillable(['user_id', 'name', 'description', 'thumbnail_url', 'card_image_url', 'player_background_url', 'artwork_url', 'is_active'])]
 final class Vibe extends Model
 {
     use HasFactory;
