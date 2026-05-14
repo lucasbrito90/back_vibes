@@ -8,6 +8,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Guard against a partially-run migration leaving the table in a
+        // half-created state on PostgreSQL (which does not auto-rollback DDL
+        // outside an explicit transaction). Dropping first ensures a clean slate.
+        Schema::dropIfExists('vibe_sounds');
+
         Schema::create('vibe_sounds', function (Blueprint $table) {
             $table->id();
             $table->foreignId('vibe_id')->constrained()->cascadeOnDelete()->index();
