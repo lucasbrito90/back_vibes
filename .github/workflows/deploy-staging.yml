@@ -1,0 +1,75 @@
+name: Deploy — Staging
+
+on:
+  push:
+    branches:
+      - staging
+
+# Prevent concurrent deploys on the same environment.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false   # let the running deploy finish rather than cancel
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging       # ties to GitHub Environment (optional, enables protection rules)
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host:        ${{ secrets.STAGING_HOST }}
+          username:    ${{ secrets.STAGING_USER }}
+          key:         ${{ secrets.STAGING_SSH_KEY }}
+          port:        22
+          script_stop: true   # abort on first non-zero exit code
+          script: |
+            set -euo pipefail
+
+            echo "──────────────────────────────────────────"
+            echo "  back_vibes — Staging Deploy"
+            echo "  $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "──────────────────────────────────────────"
+
+            cd ${{ secrets.STAGING_PATH }}
+
+            # ── 1. Pull latest code ──────────────────────
+            echo "[1/7] Fetching origin/staging..."
+            git fetch origin staging
+            git reset --hard origin/staging
+
+            # ── 2. Dependencies ──────────────────────────
+            echo "[2/7] Installing Composer dependencies..."
+            composer install \
+              --no-dev \
+              --no-interaction \
+              --prefer-dist \
+              --optimize-autoloader
+
+            # ── 3. Database ──────────────────────────────
+            echo "[3/7] Running migrations..."
+            php artisan migrate --force
+
+            # ── 4. Clear stale caches ────────────────────
+            echo "[4/7] Clearing caches..."
+            php artisan optimize:clear
+
+            # ── 5. Rebuild caches ────────────────────────
+            echo "[5/7] Rebuilding caches..."
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+
+            # ── 6. Restart PHP-FPM ───────────────────────
+            echo "[6/7] Restarting PHP-FPM..."
+            sudo systemctl restart php8.4-fpm
+
+            # ── 7. Reload Caddy ──────────────────────────
+            echo "[7/7] Reloading Caddy..."
+            sudo systemctl reload caddy
+
+            echo "──────────────────────────────────────────"
+            echo "  Deploy completed successfully."
+            echo "──────────────────────────────────────────"
