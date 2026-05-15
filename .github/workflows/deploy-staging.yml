@@ -14,7 +14,7 @@ jobs:
   deploy:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    environment: staging       # ties to GitHub Environment (optional, enables protection rules)
+    environment: STAGING       # ties to GitHub Environment (optional, enables protection rules)
 
     steps:
       - name: Deploy via SSH
