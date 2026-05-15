@@ -14,7 +14,7 @@ jobs:
   deploy:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    environment: STAGING       # ties to GitHub Environment (optional, enables protection rules)
+    environment: STAGING         # ties to GitHub Environment (optional, enables protection rules)
 
     steps:
       - name: Deploy via SSH
@@ -73,3 +73,26 @@ jobs:
             echo "──────────────────────────────────────────"
             echo "  Deploy completed successfully."
             echo "──────────────────────────────────────────"
+
+      # Run healthcheck from the GitHub Actions runner (outside the server)
+      # so it exercises the full public HTTPS stack: DNS → Caddy → PHP-FPM → DB.
+      # --retry / --retry-delay gives PHP-FPM a moment to fully restart before
+      # the first attempt.
+      - name: Healthcheck
+        run: |
+          echo "Waiting for server to be ready..."
+          sleep 5
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 5 \
+            --retry-delay 3 \
+            --retry-connrefused \
+            https://staging-api.ixora-app.app/api/health \
+            | tee /tmp/health.json
+          echo ""
+          # Fail the step if the response does not contain "ok"
+          grep -q '"status":"ok"' /tmp/health.json || \
+            (echo "Healthcheck returned unexpected response:" && cat /tmp/health.json && exit 1)
+          echo "Healthcheck passed."
