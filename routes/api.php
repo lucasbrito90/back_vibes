@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AdminAccessRequestController;
 use App\Http\Controllers\Api\FirebaseAuthController;
 use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
@@ -15,6 +16,8 @@ Route::post('/auth/firebase', [FirebaseAuthController::class, 'store']);
 Route::post('/auth/sync', FirebaseUserSyncController::class);
 
 Route::middleware('firebase.auth')->group(function () {
+    Route::post('admin/access-requests', [AdminAccessRequestController::class, 'store']);
+
     Route::apiResource('vibes', VibeController::class);
 
     Route::get('sounds', [SoundController::class, 'index']);
@@ -26,3 +29,7 @@ Route::middleware('firebase.auth')->group(function () {
         Route::delete('sounds/{sound}', [VibeSoundController::class, 'destroy']);
     });
 });
+
+if (app()->environment('testing')) {
+    Route::middleware(['firebase.auth', 'admin.approved'])->get('__admin_gate', fn () => response()->json(['data' => ['ok' => true]]));
+}
