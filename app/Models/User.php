@@ -35,4 +35,14 @@ final class User extends Authenticatable
     {
         return $this->hasOne(UserSettings::class);
     }
+
+    public function adminAccessRequests(): HasMany
+    {
+        return $this->hasMany(AdminAccessRequest::class);
+    }
+
+    public function isAdminApproved(): bool
+    {
+        return $this->role === 'admin' && $this->admin_access_status === 'approved';
+    }
 }
