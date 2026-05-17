@@ -9,7 +9,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement('DROP TABLE IF EXISTS "vibe_device_actions" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "vibe_device_actions" CASCADE');
+        } else {
+            Schema::dropIfExists('vibe_device_actions');
+        }
 
         Schema::create('vibe_device_actions', function (Blueprint $table) {
             $table->id();
@@ -22,18 +26,22 @@ return new class extends Migration
             $table->unsignedSmallInteger('delay_seconds')->default(0);
             $table->timestamp('created_at')->useCurrent();
 
-            $table->foreign('vibe_id',   'fk_vda_vibe')
-                  ->references('id')->on('vibes')->cascadeOnDelete();
+            $table->foreign('vibe_id', 'fk_vda_vibe')
+                ->references('id')->on('vibes')->cascadeOnDelete();
             $table->foreign('device_id', 'fk_vda_device')
-                  ->references('id')->on('devices')->cascadeOnDelete();
+                ->references('id')->on('devices')->cascadeOnDelete();
 
-            $table->index('vibe_id',   'idx_vda_vibe');
+            $table->index('vibe_id', 'idx_vda_vibe');
             $table->index('device_id', 'idx_vda_device');
         });
     }
 
     public function down(): void
     {
-        DB::statement('DROP TABLE IF EXISTS "vibe_device_actions" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "vibe_device_actions" CASCADE');
+        } else {
+            Schema::dropIfExists('vibe_device_actions');
+        }
     }
 };

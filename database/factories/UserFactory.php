@@ -21,6 +21,10 @@ class UserFactory extends Factory
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
             'firebase_uid' => fake()->unique()->uuid(),
+            'timezone' => 'UTC',
+            'avatar_url' => null,
+            'role' => 'user',
+            'admin_access_status' => 'none',
         ];
     }
 }

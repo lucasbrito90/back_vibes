@@ -9,7 +9,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement('DROP TABLE IF EXISTS "schedule_executions" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "schedule_executions" CASCADE');
+        } else {
+            Schema::dropIfExists('schedule_executions');
+        }
 
         Schema::create('schedule_executions', function (Blueprint $table) {
             $table->id();
@@ -22,7 +26,7 @@ return new class extends Migration
             $table->timestamp('created_at')->useCurrent();
 
             $table->foreign('schedule_id', 'fk_sch_exec_schedule')
-                  ->references('id')->on('schedules')->cascadeOnDelete();
+                ->references('id')->on('schedules')->cascadeOnDelete();
 
             $table->index('schedule_id', 'idx_sch_exec_schedule');
         });
@@ -30,6 +34,10 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::statement('DROP TABLE IF EXISTS "schedule_executions" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "schedule_executions" CASCADE');
+        } else {
+            Schema::dropIfExists('schedule_executions');
+        }
     }
 };

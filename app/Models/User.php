@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'firebase_uid', 'timezone'])]
+#[Fillable(['name', 'email', 'firebase_uid', 'timezone', 'avatar_url', 'role', 'admin_access_status'])]
 final class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */

@@ -1,31 +1,34 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\SyncFirebaseUserRequest;
+use App\Http\Resources\SyncedUserResource;
 use App\Services\Auth\SyncFirebaseUser;
 use App\Services\Firebase\VerifyFirebaseIdToken;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Kreait\Firebase\Exception\Auth\FailedToVerifyToken;
 
-class FirebaseAuthController extends Controller
+final class FirebaseUserSyncController extends Controller
 {
-    public function store(
-        Request $request,
+    public function __invoke(
+        SyncFirebaseUserRequest $request,
         VerifyFirebaseIdToken $verifier,
         SyncFirebaseUser $sync,
     ): JsonResponse {
-        $bearerToken = $request->bearerToken();
+        $token = $request->bearerToken();
 
-        if (! $bearerToken) {
+        if (! $token) {
             return response()->json([
                 'message' => 'Missing Firebase ID token.',
             ], 401);
         }
 
         try {
-            $claims = $verifier->verify($bearerToken);
+            $claims = $verifier->verify($token);
         } catch (FailedToVerifyToken) {
             return response()->json([
                 'message' => 'Invalid Firebase ID token.',
@@ -34,14 +37,6 @@ class FirebaseAuthController extends Controller
 
         $user = $sync->execute($claims);
 
-        return response()->json([
-            'message' => 'Firebase token validated.',
-            'user' => [
-                'id' => $user->id,
-                'firebase_uid' => $user->firebase_uid,
-                'name' => $user->name,
-                'email' => $user->email,
-            ],
-        ]);
+        return SyncedUserResource::make($user)->response();
     }
 }
