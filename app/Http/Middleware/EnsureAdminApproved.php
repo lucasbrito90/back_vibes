@@ -18,7 +18,7 @@ final class EnsureAdminApproved
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
-        if ($user->role !== 'admin' || $user->admin_access_status !== 'approved') {
+        if (! $user->isAdminApproved()) {
             return response()->json(['message' => 'Admin access is not approved.'], 403);
         }
 

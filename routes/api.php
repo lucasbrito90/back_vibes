@@ -21,6 +21,14 @@ Route::middleware('firebase.auth')->group(function () {
     Route::apiResource('vibes', VibeController::class);
 
     Route::get('sounds', [SoundController::class, 'index']);
+    Route::get('sounds/{sound}', [SoundController::class, 'show']);
+
+    Route::middleware('admin.approved')->group(function () {
+        Route::post('sounds', [SoundController::class, 'store']);
+        Route::patch('sounds/{sound}', [SoundController::class, 'update']);
+        Route::put('sounds/{sound}', [SoundController::class, 'update']);
+        Route::delete('sounds/{sound}', [SoundController::class, 'destroy']);
+    });
 
     Route::prefix('vibes/{vibe}')->group(function () {
         Route::get('sounds', [VibeSoundController::class, 'index']);
