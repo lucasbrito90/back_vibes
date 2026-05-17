@@ -9,7 +9,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement('DROP TABLE IF EXISTS "schedules" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "schedules" CASCADE');
+        } else {
+            Schema::dropIfExists('schedules');
+        }
 
         Schema::create('schedules', function (Blueprint $table) {
             $table->id();
@@ -25,19 +29,23 @@ return new class extends Migration
             $table->timestamp('created_at')->useCurrent();
 
             $table->foreign('user_id', 'fk_schedules_user')
-                  ->references('id')->on('users')->cascadeOnDelete();
+                ->references('id')->on('users')->cascadeOnDelete();
             $table->foreign('vibe_id', 'fk_schedules_vibe')
-                  ->references('id')->on('vibes')->cascadeOnDelete();
+                ->references('id')->on('vibes')->cascadeOnDelete();
 
             $table->index('user_id', 'idx_schedules_user');
             $table->index('vibe_id', 'idx_schedules_vibe');
             $table->index(['user_id', 'is_enabled'], 'idx_schedules_user_enabled');
-            $table->index(['user_id', 'start_time'],  'idx_schedules_user_start');
+            $table->index(['user_id', 'start_time'], 'idx_schedules_user_start');
         });
     }
 
     public function down(): void
     {
-        DB::statement('DROP TABLE IF EXISTS "schedules" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "schedules" CASCADE');
+        } else {
+            Schema::dropIfExists('schedules');
+        }
     }
 };

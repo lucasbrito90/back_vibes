@@ -9,7 +9,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement('DROP TABLE IF EXISTS "user_settings" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "user_settings" CASCADE');
+        } else {
+            Schema::dropIfExists('user_settings');
+        }
 
         Schema::create('user_settings', function (Blueprint $table) {
             $table->id();
@@ -21,10 +25,10 @@ return new class extends Migration
             $table->unsignedSmallInteger('sleep_timer_default')->default(30)->comment('Minutes');
             $table->timestamp('created_at')->useCurrent();
 
-            $table->foreign('user_id',             'fk_user_settings_user')
-                  ->references('id')->on('users')->cascadeOnDelete();
+            $table->foreign('user_id', 'fk_user_settings_user')
+                ->references('id')->on('users')->cascadeOnDelete();
             $table->foreign('preferred_device_id', 'fk_user_settings_device')
-                  ->references('id')->on('devices')->nullOnDelete();
+                ->references('id')->on('devices')->nullOnDelete();
 
             $table->unique('user_id', 'uq_user_settings_user');
         });
@@ -32,6 +36,10 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::statement('DROP TABLE IF EXISTS "user_settings" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "user_settings" CASCADE');
+        } else {
+            Schema::dropIfExists('user_settings');
+        }
     }
 };

@@ -17,7 +17,11 @@ return new class extends Migration
         // apparent rollback. Using CASCADE ensures the table and every object
         // that depends on it (constraints, indexes, sequences) is fully removed
         // before we try to create a clean copy.
-        DB::statement('DROP TABLE IF EXISTS "vibe_sounds" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "vibe_sounds" CASCADE');
+        } else {
+            Schema::dropIfExists('vibe_sounds');
+        }
 
         // Explicit constraint names prevent any auto-naming collision.
         // On PostgreSQL the generated name must be unique across the whole
@@ -34,12 +38,12 @@ return new class extends Migration
             $table->timestamp('created_at')->useCurrent();
 
             // Explicit constraint names — safe regardless of PostgreSQL naming rules.
-            $table->foreign('vibe_id',  'fk_vibe_sounds_vibe')
-                  ->references('id')->on('vibes')->cascadeOnDelete();
+            $table->foreign('vibe_id', 'fk_vibe_sounds_vibe')
+                ->references('id')->on('vibes')->cascadeOnDelete();
             $table->foreign('sound_id', 'fk_vibe_sounds_sound')
-                  ->references('id')->on('sounds')->cascadeOnDelete();
+                ->references('id')->on('sounds')->cascadeOnDelete();
 
-            $table->index('vibe_id',  'idx_vibe_sounds_vibe');
+            $table->index('vibe_id', 'idx_vibe_sounds_vibe');
             $table->index('sound_id', 'idx_vibe_sounds_sound');
 
             $table->unique(['vibe_id', 'sound_id'], 'uq_vibe_sounds_vibe_sound');
@@ -48,6 +52,10 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::statement('DROP TABLE IF EXISTS "vibe_sounds" CASCADE');
+        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+            DB::statement('DROP TABLE IF EXISTS "vibe_sounds" CASCADE');
+        } else {
+            Schema::dropIfExists('vibe_sounds');
+        }
     }
 };
