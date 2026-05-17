@@ -1,16 +1,18 @@
 <?php
 
 use App\Http\Controllers\Api\FirebaseAuthController;
+use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\SoundController;
-use App\Http\Controllers\Api\VibeSoundController;
 use App\Http\Controllers\Api\VibeController;
+use App\Http\Controllers\Api\VibeSoundController;
 use Illuminate\Support\Facades\Route;
 
 // Public — no authentication required.
 Route::get('/health', [HealthController::class, 'index']);
 
 Route::post('/auth/firebase', [FirebaseAuthController::class, 'store']);
+Route::post('/auth/sync', FirebaseUserSyncController::class);
 
 Route::middleware('firebase.auth')->group(function () {
     Route::apiResource('vibes', VibeController::class);

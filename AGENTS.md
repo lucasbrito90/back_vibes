@@ -45,7 +45,7 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 - Do not change the application's dependencies without approval.
 - **API Structure**: Controllers are namespaced under `App\Http\Controllers\Api\` with RESTful routes defined in `routes/api.php`.
 - **Authorization**: Uses Laravel Policies (in `app/Policies/`) with the `#[Authorize]` attribute on controller methods (e.g., `#[Authorize('viewAny', Vibe::class)]`). Policies include comments for scoping guidance (e.g., controllers must scope queries by `auth()->id()`).
-- **Authentication**: Firebase-based auth via `kreait/laravel-firebase`. The `FirebaseAuthenticate` middleware validates tokens and logs in users via the `User` model with `firebase_uid` field.
+- **Authentication**: Firebase-based auth via `kreait/laravel-firebase`. `VerifyFirebaseIdToken` validates ID tokens (Kreait `verifyIdToken`). `POST /api/auth/sync` accepts `Authorization: Bearer <Firebase ID token>`, upserts the local `User` by `firebase_uid`, and returns `SyncedUserResource` (`role` / `admin_access_status` default from DB). Protected routes use `FirebaseAuthenticate` middleware, which verifies the token and logs in an existing local user (call `/api/auth/sync` first so the user exists). Legacy `POST /api/auth/firebase` uses the same sync logic with a different JSON shape.
 
 ## Frontend Bundling
 
