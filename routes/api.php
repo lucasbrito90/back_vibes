@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminAccessRequestController;
+use App\Http\Controllers\Api\CoverBundleController;
 use App\Http\Controllers\Api\FirebaseAuthController;
 use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
@@ -23,11 +24,19 @@ Route::middleware('firebase.auth')->group(function () {
     Route::get('sounds', [SoundController::class, 'index']);
     Route::get('sounds/{sound}', [SoundController::class, 'show']);
 
+    Route::get('cover-bundles', [CoverBundleController::class, 'index']);
+    Route::get('cover-bundles/{cover_bundle}', [CoverBundleController::class, 'show']);
+
     Route::middleware('admin.approved')->group(function () {
         Route::post('sounds', [SoundController::class, 'store']);
         Route::patch('sounds/{sound}', [SoundController::class, 'update']);
         Route::put('sounds/{sound}', [SoundController::class, 'update']);
         Route::delete('sounds/{sound}', [SoundController::class, 'destroy']);
+
+        Route::post('cover-bundles', [CoverBundleController::class, 'store']);
+        Route::patch('cover-bundles/{cover_bundle}', [CoverBundleController::class, 'update']);
+        Route::put('cover-bundles/{cover_bundle}', [CoverBundleController::class, 'update']);
+        Route::delete('cover-bundles/{cover_bundle}', [CoverBundleController::class, 'destroy']);
     });
 
     Route::prefix('vibes/{vibe}')->group(function () {
