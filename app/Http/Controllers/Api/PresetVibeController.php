@@ -9,8 +9,10 @@ use App\Http\Requests\StorePresetVibeRequest;
 use App\Http\Requests\SyncPresetVibeSoundsRequest;
 use App\Http\Requests\UpdatePresetVibeRequest;
 use App\Http\Resources\PresetVibeResource;
+use App\Http\Resources\VibeResource;
 use App\Models\PresetVibe;
 use App\Models\PresetVibeSound;
+use App\Models\Vibe;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -90,6 +92,71 @@ class PresetVibeController extends Controller
         }
 
         return new PresetVibeResource($presetVibe->fresh()->load(['coverBundle', 'presetVibeSounds.sound']));
+    }
+
+    /**
+     * Copy an active preset into a new user-owned vibe (independent rows; no FK back to the preset).
+     */
+    public function import(Request $request, PresetVibe $presetVibe): JsonResponse
+    {
+        if (! $presetVibe->is_active) {
+            abort(404);
+        }
+
+        $presetVibe->loadMissing(['coverBundle', 'presetVibeSounds']);
+
+        $userId = (int) $request->user()->id;
+
+        $vibe = DB::transaction(function () use ($presetVibe, $userId): Vibe {
+            $bundle = $presetVibe->coverBundle;
+
+            $urls = [
+                'thumbnail_url' => null,
+                'card_image_url' => null,
+                'player_background_url' => null,
+                'artwork_url' => null,
+            ];
+
+            if ($bundle !== null) {
+                // Copy URLs even if the bundle is inactive — the preset still references it.
+                $urls['thumbnail_url'] = $bundle->thumbnail_url;
+                $urls['player_background_url'] = $bundle->player_background_url;
+                $urls['artwork_url'] = $bundle->artwork_url;
+            }
+
+            $vibe = Vibe::query()->create([
+                'user_id' => $userId,
+                'name' => $presetVibe->name,
+                'description' => $presetVibe->description,
+                ...$urls,
+                'is_active' => true,
+            ]);
+
+            foreach ($presetVibe->presetVibeSounds as $layer) {
+                $playMode = $layer->play_mode ?: 'loop';
+
+                $vibe->sounds()->attach($layer->sound_id, [
+                    'volume' => $layer->volume,
+                    'loop' => $playMode === 'loop',
+                    'sort_order' => $layer->sort_order,
+                    'play_mode' => $playMode,
+                    'repeat_interval_seconds' => $playMode === 'interval'
+                        ? $layer->repeat_interval_seconds
+                        : null,
+                    'start_offset_seconds' => $layer->start_offset_seconds,
+                    'play_duration_seconds' => $layer->play_duration_seconds,
+                    'fade_in_seconds' => null,
+                    'fade_out_seconds' => null,
+                ]);
+            }
+
+            return $vibe;
+        });
+
+        $vibe->load(['sounds']);
+        $vibe->loadCount('sounds');
+
+        return (new VibeResource($vibe))->response()->setStatusCode(201);
     }
 
     public function destroy(PresetVibe $presetVibe): JsonResponse

@@ -30,6 +30,7 @@ Route::middleware('firebase.auth')->group(function () {
 
     Route::get('preset-vibes', [PresetVibeController::class, 'index']);
     Route::get('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'show']);
+    Route::post('preset-vibes/{preset_vibe}/import', [PresetVibeController::class, 'import']);
 
     Route::middleware('admin.approved')->group(function () {
         Route::post('sounds', [SoundController::class, 'store']);
