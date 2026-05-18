@@ -19,22 +19,14 @@ class StoreSoundRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:255'],
-            'file_url' => ['required_without:audio_url', 'nullable', 'string', 'max:2048'],
-            'audio_url' => ['required_without:file_url', 'nullable', 'string', 'max:2048'],
+            'file_url' => ['required', 'string', 'max:2048'],
             'thumbnail_url' => ['nullable', 'string', 'max:2048'],
             'duration' => ['nullable', 'integer', 'min:0'],
             'duration_seconds' => ['nullable', 'integer', 'min:0'],
+            'tags' => ['nullable', 'array'],
+            'tags.*' => ['string', 'max:128'],
+            'is_active' => ['sometimes', 'boolean'],
         ];
-    }
-
-    public function resolvedFileUrl(): string
-    {
-        /** @var array<string, mixed> $data */
-        $data = $this->validated();
-
-        $url = $data['audio_url'] ?? $data['file_url'] ?? '';
-
-        return is_string($url) ? $url : '';
     }
 
     public function resolvedDuration(): ?int
@@ -42,14 +34,34 @@ class StoreSoundRequest extends FormRequest
         /** @var array<string, mixed> $data */
         $data = $this->validated();
 
-        if (isset($data['duration_seconds'])) {
+        if (array_key_exists('duration_seconds', $data) && $data['duration_seconds'] !== null) {
             return (int) $data['duration_seconds'];
         }
 
-        if (isset($data['duration'])) {
+        if (array_key_exists('duration', $data) && $data['duration'] !== null) {
             return (int) $data['duration'];
         }
 
         return null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function resolvedTags(): array
+    {
+        /** @var array<string, mixed> $data */
+        $data = $this->validated();
+        $tags = $data['tags'] ?? [];
+
+        if (! is_array($tags)) {
+            return [];
+        }
+
+        /** @var list<string> */
+        return array_values(array_filter(array_map(
+            static fn (mixed $t): string => is_string($t) ? trim($t) : '',
+            $tags,
+        ), static fn (string $s): bool => $s !== ''));
     }
 }

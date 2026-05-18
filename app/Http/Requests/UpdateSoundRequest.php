@@ -20,36 +20,53 @@ class UpdateSoundRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'category' => ['sometimes', 'required', 'string', 'max:255'],
             'file_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
-            'audio_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'thumbnail_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
             'duration' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'duration_seconds' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'tags' => ['sometimes', 'nullable', 'array'],
+            'tags.*' => ['string', 'max:128'],
+            'is_active' => ['sometimes', 'boolean'],
         ];
     }
 
-    /**
-     * When either URL field is present, return the resolved storage URL (audio_url wins).
-     */
-    public function resolvedFileUrl(): ?string
+    public function resolvedDuration(): ?int
     {
         /** @var array<string, mixed> $data */
         $data = $this->validated();
 
-        if (! array_key_exists('audio_url', $data) && ! array_key_exists('file_url', $data)) {
+        if (array_key_exists('duration_seconds', $data)) {
+            return $data['duration_seconds'] === null ? null : (int) $data['duration_seconds'];
+        }
+
+        if (array_key_exists('duration', $data)) {
+            return $data['duration'] === null ? null : (int) $data['duration'];
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<string>|null Null when tags key absent from payload.
+     */
+    public function resolvedTags(): ?array
+    {
+        /** @var array<string, mixed> $data */
+        $data = $this->validated();
+
+        if (! array_key_exists('tags', $data)) {
             return null;
         }
 
-        $audio = $data['audio_url'] ?? null;
-        $file = $data['file_url'] ?? null;
+        $tags = $data['tags'];
 
-        if (is_string($audio) && $audio !== '') {
-            return $audio;
+        if (! is_array($tags)) {
+            return [];
         }
 
-        if (is_string($file) && $file !== '') {
-            return $file;
-        }
-
-        return '';
+        /** @var list<string> */
+        return array_values(array_filter(array_map(
+            static fn (mixed $t): string => is_string($t) ? trim($t) : '',
+            $tags,
+        ), static fn (string $s): bool => $s !== ''));
     }
 }
