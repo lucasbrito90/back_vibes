@@ -15,19 +15,20 @@ class VibeResource extends JsonResource
         $thumb = $this->thumbnail_url;
 
         return [
-            'id'                   => $this->id,
-            'name'                 => $this->name,
-            'description'          => $this->description,
+            'id' => $this->id,
+            'name' => $this->name,
+            'description' => $this->description,
             // Legacy field — kept for backward compat. Use the specific fields below.
-            'thumbnail_url'        => $thumb,
+            'thumbnail_url' => $thumb,
             // Context-specific fields with thumbnail_url fallback.
-            'card_image_url'       => $this->card_image_url       ?? $thumb,
-            'player_background_url'=> $this->player_background_url ?? $thumb,
-            'artwork_url'          => $this->artwork_url           ?? $thumb,
-            'is_active'            => $this->is_active,
-            'sounds_count'         => (int) ($this->sounds_count ?? 0),
-            'created_at'           => $this->created_at?->toISOString(),
-            'updated_at'           => $this->updated_at?->toISOString(),
+            'card_image_url' => $this->card_image_url ?? $thumb,
+            'player_background_url' => $this->player_background_url ?? $thumb,
+            'artwork_url' => $this->artwork_url ?? $thumb,
+            'is_active' => $this->is_active,
+            'sounds_count' => (int) ($this->sounds_count ?? 0),
+            'sounds' => VibeSoundResource::collection($this->whenLoaded('sounds')),
+            'created_at' => $this->created_at?->toISOString(),
+            'updated_at' => $this->updated_at?->toISOString(),
         ];
     }
 }
