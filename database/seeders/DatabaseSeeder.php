@@ -22,5 +22,6 @@ class DatabaseSeeder extends Seeder
 
         $this->call(SoundSeeder::class);
         $this->call(CoverBundleSeeder::class);
+        $this->call(PresetVibeSeeder::class);
     }
 }
