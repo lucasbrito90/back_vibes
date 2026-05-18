@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\CoverBundleController;
 use App\Http\Controllers\Api\FirebaseAuthController;
 use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
+use App\Http\Controllers\Api\PresetVibeController;
 use App\Http\Controllers\Api\SoundController;
 use App\Http\Controllers\Api\VibeController;
 use App\Http\Controllers\Api\VibeSoundController;
@@ -27,6 +28,9 @@ Route::middleware('firebase.auth')->group(function () {
     Route::get('cover-bundles', [CoverBundleController::class, 'index']);
     Route::get('cover-bundles/{cover_bundle}', [CoverBundleController::class, 'show']);
 
+    Route::get('preset-vibes', [PresetVibeController::class, 'index']);
+    Route::get('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'show']);
+
     Route::middleware('admin.approved')->group(function () {
         Route::post('sounds', [SoundController::class, 'store']);
         Route::patch('sounds/{sound}', [SoundController::class, 'update']);
@@ -37,6 +41,12 @@ Route::middleware('firebase.auth')->group(function () {
         Route::patch('cover-bundles/{cover_bundle}', [CoverBundleController::class, 'update']);
         Route::put('cover-bundles/{cover_bundle}', [CoverBundleController::class, 'update']);
         Route::delete('cover-bundles/{cover_bundle}', [CoverBundleController::class, 'destroy']);
+
+        Route::post('preset-vibes', [PresetVibeController::class, 'store']);
+        Route::patch('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'update']);
+        Route::put('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'update']);
+        Route::delete('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'destroy']);
+        Route::put('preset-vibes/{preset_vibe}/sounds', [PresetVibeController::class, 'syncSounds']);
     });
 
     Route::prefix('vibes/{vibe}')->group(function () {
