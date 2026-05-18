@@ -70,7 +70,7 @@ final class AdminAccessRequestController extends Controller
             ['adminAccessRequest' => $accessRequest->id],
         );
 
-        Mail::to($reviewEmail)->send(new AdminAccessRequestedMail(
+        Mail::to($reviewEmail)->queue(new AdminAccessRequestedMail(
             accessRequest: $accessRequest,
             approveUrl: $approveUrl,
             rejectUrl: $rejectUrl,
