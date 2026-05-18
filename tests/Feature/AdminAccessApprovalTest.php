@@ -34,7 +34,7 @@ function mockJwtForUser(User $user): UnencryptedToken
     return $jwt;
 }
 
-test('POST /api/admin/access-requests creates pending request and sends mail', function () {
+test('POST /api/admin/access-requests creates pending request and queues mail', function () {
     Mail::fake();
 
     $user = User::factory()->create([
@@ -57,9 +57,10 @@ test('POST /api/admin/access-requests creates pending request and sends mail', f
     expect($user->admin_access_status)->toBe('pending');
     expect(AdminAccessRequest::query()->where('user_id', $user->id)->where('status', 'pending')->count())->toBe(1);
 
-    Mail::assertSent(AdminAccessRequestedMail::class, function (AdminAccessRequestedMail $mail) {
+    Mail::assertQueued(AdminAccessRequestedMail::class, function (AdminAccessRequestedMail $mail) {
         return $mail->hasTo('reviewer@test.com');
     });
+    Mail::assertNothingSent();
 });
 
 test('POST /api/admin/access-requests returns pending when request already pending without sending mail', function () {
@@ -86,11 +87,12 @@ test('POST /api/admin/access-requests returns pending when request already pendi
         ->assertOk()
         ->assertJsonPath('data.status', 'pending');
 
+    Mail::assertNothingQueued();
     Mail::assertNothingSent();
     expect(AdminAccessRequest::query()->where('user_id', $user->id)->count())->toBe(1);
 });
 
-test('POST /api/admin/access-requests returns approved for approved admin without mail', function () {
+test('POST /api/admin/access-requests returns approved for approved admin without queueing mail', function () {
     Mail::fake();
 
     $user = User::factory()->create([
@@ -108,6 +110,7 @@ test('POST /api/admin/access-requests returns approved for approved admin withou
         ->assertOk()
         ->assertJsonPath('data.status', 'approved');
 
+    Mail::assertNothingQueued();
     Mail::assertNothingSent();
 });
 
