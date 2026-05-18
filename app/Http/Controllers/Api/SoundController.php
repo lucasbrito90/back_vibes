@@ -27,21 +27,30 @@ class SoundController extends Controller
 
     public function store(StoreSoundRequest $request): JsonResponse
     {
-        $fileUrl = $request->resolvedFileUrl();
+        $validated = $request->validated();
+
+        $fileUrl = trim((string) $validated['file_url']);
         if ($fileUrl === '') {
             throw ValidationException::withMessages([
-                'audio_url' => ['A file URL is required (file_url or audio_url).'],
+                'file_url' => ['A file URL is required.'],
             ]);
         }
 
-        $validated = $request->validated();
+        $thumbnailUrl = $validated['thumbnail_url'] ?? null;
+        $thumbnailUrl = is_string($thumbnailUrl) && trim($thumbnailUrl) !== ''
+            ? trim($thumbnailUrl)
+            : null;
 
         $sound = Sound::query()->create([
             'name' => $validated['name'],
             'category' => $validated['category'],
             'file_url' => $fileUrl,
-            'thumbnail_url' => $validated['thumbnail_url'] ?? null,
+            'thumbnail_url' => $thumbnailUrl,
             'duration' => $request->resolvedDuration(),
+            'tags' => $request->resolvedTags(),
+            'is_active' => array_key_exists('is_active', $validated)
+                ? (bool) $validated['is_active']
+                : true,
         ]);
 
         return (new SoundResource($sound))->response()->setStatusCode(201);
@@ -52,30 +61,41 @@ class SoundController extends Controller
         $validated = $request->validated();
         $payload = [];
 
-        foreach (['name', 'category', 'thumbnail_url'] as $field) {
+        foreach (['name', 'category'] as $field) {
             if (array_key_exists($field, $validated)) {
                 $payload[$field] = $validated[$field];
             }
         }
 
-        $fileUrl = $request->resolvedFileUrl();
-        if ($fileUrl !== null) {
+        if (array_key_exists('file_url', $validated)) {
+            $fileUrl = trim((string) ($validated['file_url'] ?? ''));
             if ($fileUrl === '') {
                 throw ValidationException::withMessages([
-                    'audio_url' => ['file_url and audio_url cannot be empty.'],
+                    'file_url' => ['file_url cannot be empty.'],
                 ]);
             }
             $payload['file_url'] = $fileUrl;
         }
 
-        if (array_key_exists('duration_seconds', $validated)) {
-            $payload['duration'] = $validated['duration_seconds'] === null
+        if (array_key_exists('thumbnail_url', $validated)) {
+            $thumb = $validated['thumbnail_url'];
+            $payload['thumbnail_url'] = $thumb === null || $thumb === ''
                 ? null
-                : (int) $validated['duration_seconds'];
-        } elseif (array_key_exists('duration', $validated)) {
-            $payload['duration'] = $validated['duration'] === null
-                ? null
-                : (int) $validated['duration'];
+                : trim((string) $thumb);
+        }
+
+        $duration = $request->resolvedDuration();
+        if (array_key_exists('duration_seconds', $validated) || array_key_exists('duration', $validated)) {
+            $payload['duration'] = $duration;
+        }
+
+        $tags = $request->resolvedTags();
+        if ($tags !== null) {
+            $payload['tags'] = $tags;
+        }
+
+        if (array_key_exists('is_active', $validated)) {
+            $payload['is_active'] = (bool) $validated['is_active'];
         }
 
         if ($payload !== []) {

@@ -74,7 +74,12 @@ class SoundSeeder extends Seeder
         ];
 
         DB::table('sounds')->insert(array_map(
-            fn ($s) => [...$s, 'created_at' => now()],
+            fn ($s) => [
+                ...$s,
+                'tags' => json_encode([]),
+                'is_active' => true,
+                'created_at' => now(),
+            ],
             $sounds,
         ));
     }
