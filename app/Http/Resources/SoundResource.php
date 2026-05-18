@@ -13,12 +13,14 @@ class SoundResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'file_url' => $this->file_url,
-            /** Alias for admin clients that send audio_url on write. */
+            /** Read-only alias for legacy clients; canonical field is {@see Sound::$file_url}. */
             'audio_url' => $this->file_url,
             'thumbnail_url' => $this->thumbnail_url,
             'category' => $this->category,
             'duration' => $this->duration,
             'duration_seconds' => $this->duration,
+            'tags' => $this->tags ?? [],
+            'is_active' => (bool) ($this->is_active ?? true),
             'created_at' => $this->created_at?->toISOString(),
         ];
     }

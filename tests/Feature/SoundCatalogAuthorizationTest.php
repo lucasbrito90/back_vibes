@@ -68,7 +68,7 @@ test('regular user cannot POST /api/sounds', function () {
     $this->postJson('/api/sounds', [
         'name' => 'New sound',
         'category' => 'Test',
-        'audio_url' => 'https://cdn.example/new.mp3',
+        'file_url' => 'https://cdn.example/new.mp3',
     ], ['Authorization' => 'Bearer tok'])
         ->assertForbidden()
         ->assertJson(['message' => 'Admin access is not approved.']);
@@ -86,7 +86,7 @@ test('pending user cannot POST /api/sounds', function () {
     $this->postJson('/api/sounds', [
         'name' => 'X',
         'category' => 'Y',
-        'audio_url' => 'https://cdn.example/x.mp3',
+        'file_url' => 'https://cdn.example/x.mp3',
     ], ['Authorization' => 'Bearer tok'])
         ->assertForbidden()
         ->assertJson(['message' => 'Admin access is not approved.']);
@@ -104,7 +104,7 @@ test('rejected user cannot POST /api/sounds', function () {
     $this->postJson('/api/sounds', [
         'name' => 'X',
         'category' => 'Y',
-        'audio_url' => 'https://cdn.example/x.mp3',
+        'file_url' => 'https://cdn.example/x.mp3',
     ], ['Authorization' => 'Bearer tok'])
         ->assertForbidden()
         ->assertJson(['message' => 'Admin access is not approved.']);
@@ -122,8 +122,10 @@ test('approved admin can POST /api/sounds', function () {
     $this->postJson('/api/sounds', [
         'name' => 'Admin sound',
         'category' => 'Catalog',
-        'audio_url' => 'https://cdn.example/admin.mp3',
+        'file_url' => 'https://cdn.example/admin.mp3',
         'duration_seconds' => 90,
+        'tags' => ['ambient', 'loop'],
+        'is_active' => true,
     ], ['Authorization' => 'Bearer tok'])
         ->assertCreated()
         ->assertJsonPath('data.name', 'Admin sound')
