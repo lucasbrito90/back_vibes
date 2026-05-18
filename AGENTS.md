@@ -7,27 +7,22 @@ The Laravel Boost guidelines are specifically curated by Laravel maintainers for
 
 ## Foundational Context
 
-This application is a Laravel REST API backend and its main Laravel ecosystems package & versions are below. You are an expert with them all. Ensure you abide by these specific packages & versions.
+This application is a Laravel application and its main Laravel ecosystems package & versions are below. You are an expert with them all. Ensure you abide by these specific packages & versions.
 
 - php - 8.4
 - laravel/framework (LARAVEL) - v13
+- laravel/prompts (PROMPTS) - v0
 - laravel/boost (BOOST) - v2
-- kreait/laravel-firebase (FIREBASE) - ^7.1
-- laravel/tinker - ^3.0
+- laravel/mcp (MCP) - v0
+- laravel/pail (PAIL) - v1
+- laravel/pint (PINT) - v1
 - pestphp/pest (PEST) - v4
 - phpunit/phpunit (PHPUNIT) - v12
 - tailwindcss (TAILWINDCSS) - v4
 
-**Database**: SQLite (`database/database.sqlite`)
-
 ## Skills Activation
 
 This project has domain-specific skills available in `**/skills/**`. You MUST activate the relevant skill whenever you work in that domain—don't wait until you're stuck.
-
-**Active skills** (configured in `boost.json`):
-- `laravel-best-practices`
-- `pest-testing`
-- `tailwindcss-development`
 
 ## Conventions
 
@@ -43,9 +38,6 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 
 - Stick to existing directory structure; don't create new base folders without approval.
 - Do not change the application's dependencies without approval.
-- **API Structure**: Controllers are namespaced under `App\Http\Controllers\Api\` with RESTful routes defined in `routes/api.php`.
-- **Authorization**: Uses Laravel Policies (in `app/Policies/`) with the `#[Authorize]` attribute on controller methods (e.g., `#[Authorize('viewAny', Vibe::class)]`). Policies include comments for scoping guidance (e.g., controllers must scope queries by `auth()->id()`). **`SoundPolicy`** documents catalog rules (`view`/`viewAny` for any authenticated user; `create`/`update`/`delete` require `User::isAdminApproved()`); **`SoundController`** write routes are enforced today via **`firebase.auth`** + **`admin.approved`** middleware (policy wiring optional follow-up).
-- **Authentication**: Firebase-based auth via `kreait/laravel-firebase`. `VerifyFirebaseIdToken` validates ID tokens. `POST /api/auth/sync` upserts local users (**never** behind `admin.approved`). **`POST /api/admin/access-requests`** (Firebase-authenticated) creates a pending request; **`AdminAccessRequestedMail`** is **queued** (`ShouldQueue` + `Mail::queue()`). Process with **`QUEUE_CONNECTION=database`** (see `.env.example`) and **`php artisan queue:work --tries=3`** so `jobs` drains and the reviewer receives signed approve/reject links (`GET /admin/access-requests/{id}/approve|reject`). Middleware **`admin.approved`** requires `User::isAdminApproved()` (`role === admin` and `admin_access_status === approved`). **Sound catalog**: `GET /api/sounds` and `GET /api/sounds/{sound}` require **`firebase.auth`** only (mobile + admin listing). **`POST` / `PATCH`/`PUT` / `DELETE`** on **`/api/sounds`** require **`firebase.auth`** + **`admin.approved`**. **Cover bundles** (`docs/cover-bundles.md`): same split — **`GET /api/cover-bundles`** and **`GET /api/cover-bundles/{cover_bundle}`** use **`firebase.auth`** only (default list **`is_active`**, **`include_inactive=1`** only for approved admins); writes need **`firebase.auth`** + **`admin.approved`**. **`CoverBundlePolicy`** mirrors **`SoundPolicy`**. **Vibe sound attachments** under `/api/vibes/{vibe}/sounds` stay **`firebase.auth`** only so the mobile app can compose vibes. Reviewer inbox: `ADMIN_ACCESS_REVIEW_EMAIL` / `config('admin_access.review_email')`.
 
 ## Frontend Bundling
 
@@ -108,13 +100,19 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 - Use TitleCase for Enum keys: `FavoritePerson`, `BestLake`, `Monthly`.
 - Prefer PHPDoc blocks over inline comments. Only add inline comments for exceptionally complex logic.
 - Use array shape type definitions in PHPDoc blocks.
-- **Model declarations**: Use the `final` keyword on models (e.g., `final class Vibe extends Model`) and the `#[Fillable(['field1', 'field2'])]` attribute for field mass-assignment instead of `$fillable` property.
 
 === deployments rules ===
 
 # Deployment
 
 - Laravel can be deployed using [Laravel Cloud](https://cloud.laravel.com/), which is the fastest way to deploy and scale production Laravel applications.
+
+=== tests rules ===
+
+# Test Enforcement
+
+- Every change must be programmatically tested. Write a new test or update an existing test, then run the affected tests to make sure they pass.
+- Run the minimum number of tests needed to ensure code quality and speed. Use `php artisan test --compact` with a specific filename or filter.
 
 === laravel/core rules ===
 
@@ -130,20 +128,7 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 
 ## APIs & Eloquent Resources
 
-- For APIs, use Eloquent API Resources to transform model data into JSON. Controllers return resources: `new VibeResource($vibe)` for single items and `VibeResource::collection($vibes)` for collections.
-- Use `apiResource` routes in `routes/api.php` for RESTful endpoints: `Route::apiResource('vibes', VibeController::class)`.
-- Controllers should be under `App\Http\Controllers\Api\`.
-
-## Authorization in Controllers
-
-- **Use `#[Authorize(...)]` attribute only for actions that don't require a specific model instance**:
-  - `#[Authorize('viewAny', Vibe::class)]` - for listing/index actions
-  - `#[Authorize('create', Vibe::class)]` - for create actions
-- **Use `$this->authorize()` method for actions that require a model instance**:
-  - `$this->authorize('view', $vibe)` - for show/view actions
-  - `$this->authorize('update', $vibe)` - for update actions
-  - `$this->authorize('delete', $vibe)` - for delete actions
-- The difference: The `#[Authorize]` attribute doesn't have access to route parameters, so it can't pass model instances to policy methods that expect them.
+- For APIs, default to using Eloquent API Resources and API versioning unless existing API routes do not, then you should follow existing application convention.
 
 ## URL Generation
 
