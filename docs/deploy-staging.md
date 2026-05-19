@@ -199,7 +199,11 @@ DB_USERNAME=<user>
 DB_PASSWORD=<password>
 DB_SSLMODE=require
 
-FIREBASE_CREDENTIALS=<path-to-service-account.json>
+# Preferred on DigitalOcean App Platform and similar: paste the full service account JSON (single line) as a secret.
+FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"...", ... }
+
+# Alternative when the JSON file exists on the server (e.g. classic Droplet deploy):
+# FIREBASE_CREDENTIALS=/var/www/back_vibes/storage/app/firebase-adminsdk.json
 ```
 
 After editing `.env`, run:
