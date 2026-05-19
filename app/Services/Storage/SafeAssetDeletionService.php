@@ -26,7 +26,7 @@ final class SafeAssetDeletionService
     /**
      * Attempt to delete the Spaces object for this URL when nothing in the DB still stores it.
      *
-     * Intended to run **after** the owning row (e.g. Sound) was removed so reference counting
+     * Intended to run **after** the owning row (e.g. Sound or CoverBundle) was removed so reference counting
      * excludes that row automatically.
      */
     public function deleteUrlIfUnreferenced(?string $url): bool
