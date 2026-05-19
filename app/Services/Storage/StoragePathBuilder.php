@@ -13,43 +13,59 @@ final class StoragePathBuilder
         return sprintf('sounds/%s/audio/original.%s', $soundId, $ext);
     }
 
-    public function soundThumbnail(int|string $soundId): string
+    public function soundThumbnail(int|string $soundId, string $extension): string
     {
-        return sprintf('sounds/%s/thumbnail/thumbnail.webp', $soundId);
+        $ext = ltrim($extension, '.');
+
+        return sprintf('sounds/%s/thumbnail/thumbnail.%s', $soundId, $ext);
     }
 
-    public function coverThumbnail(int|string $coverBundleId): string
+    public function coverThumbnail(int|string $coverBundleId, string $extension): string
     {
-        return sprintf('covers/%s/thumbnail/thumbnail.webp', $coverBundleId);
+        $ext = ltrim($extension, '.');
+
+        return sprintf('covers/%s/thumbnail/thumbnail.%s', $coverBundleId, $ext);
     }
 
-    public function coverArtwork(int|string $coverBundleId): string
+    public function coverArtwork(int|string $coverBundleId, string $extension): string
     {
-        return sprintf('covers/%s/artwork/artwork.webp', $coverBundleId);
+        $ext = ltrim($extension, '.');
+
+        return sprintf('covers/%s/artwork/artwork.%s', $coverBundleId, $ext);
     }
 
-    public function coverPlayerBackground(int|string $coverBundleId): string
+    public function coverPlayerBackground(int|string $coverBundleId, string $extension): string
     {
-        return sprintf('covers/%s/player-background/background.webp', $coverBundleId);
+        $ext = ltrim($extension, '.');
+
+        return sprintf('covers/%s/player-background/background.%s', $coverBundleId, $ext);
     }
 
-    public function vibeThumbnail(int|string $vibeId): string
+    public function vibeThumbnail(int|string $vibeId, string $extension): string
     {
-        return sprintf('vibes/%s/thumbnail/thumbnail.webp', $vibeId);
+        $ext = ltrim($extension, '.');
+
+        return sprintf('vibes/%s/thumbnail/thumbnail.%s', $vibeId, $ext);
     }
 
-    public function vibeArtwork(int|string $vibeId): string
+    public function vibeArtwork(int|string $vibeId, string $extension): string
     {
-        return sprintf('vibes/%s/artwork/artwork.webp', $vibeId);
+        $ext = ltrim($extension, '.');
+
+        return sprintf('vibes/%s/artwork/artwork.%s', $vibeId, $ext);
     }
 
-    public function vibePlayerBackground(int|string $vibeId): string
+    public function vibePlayerBackground(int|string $vibeId, string $extension): string
     {
-        return sprintf('vibes/%s/player-background/background.webp', $vibeId);
+        $ext = ltrim($extension, '.');
+
+        return sprintf('vibes/%s/player-background/background.%s', $vibeId, $ext);
     }
 
-    public function userAvatar(int|string $userId): string
+    public function userAvatar(int|string $userId, string $extension): string
     {
-        return sprintf('users/%s/avatar/avatar.webp', $userId);
+        $ext = ltrim($extension, '.');
+
+        return sprintf('users/%s/avatar/avatar.%s', $userId, $ext);
     }
 }

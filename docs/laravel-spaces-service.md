@@ -8,8 +8,9 @@ Backend-only integration for **DigitalOcean Spaces** (S3-compatible). This match
 - **DigitalOceanSpacesService** — read/write/delete/exists against the `spaces` disk, CDN `publicUrl`, and safe `keyFromUrl` parsing.
 - **StoragePathBuilder** — canonical object keys for sounds, cover bundles, vibes, and user avatars.
 - **StorageAssetReferenceService** — count database rows that reference a given URL string (foundation for future safe deletes).
+- **Admin uploads** — see [`laravel-upload-endpoints.md`](laravel-upload-endpoints.md) (`POST /api/admin/uploads`).
 
-**Not included yet:** upload HTTP endpoints, automatic deletes, reset/reconcile commands, image/audio processing, Nuxt Admin or mobile changes, or migrating real objects.
+**Not included in the core Spaces doc:** automatic persistence of upload URLs into models (handled by admin UI after upload), automatic deletes, reset/reconcile commands, image/audio processing, or migrating legacy Firebase URLs/objects.
 
 ## Environment variables
 
@@ -44,14 +45,16 @@ Use `Storage::disk('spaces')` directly only when appropriate; prefer **DigitalOc
 | Method | Key pattern |
 | --- | --- |
 | `soundAudio($id, $ext)` | `sounds/{id}/audio/original.{ext}` |
-| `soundThumbnail($id)` | `sounds/{id}/thumbnail/thumbnail.webp` |
-| `coverThumbnail($id)` | `covers/{id}/thumbnail/thumbnail.webp` |
-| `coverArtwork($id)` | `covers/{id}/artwork/artwork.webp` |
-| `coverPlayerBackground($id)` | `covers/{id}/player-background/background.webp` |
-| `vibeThumbnail($id)` | `vibes/{id}/thumbnail/thumbnail.webp` |
-| `vibeArtwork($id)` | `vibes/{id}/artwork/artwork.webp` |
-| `vibePlayerBackground($id)` | `vibes/{id}/player-background/background.webp` |
-| `userAvatar($id)` | `users/{id}/avatar/avatar.webp` |
+| `soundThumbnail($id, $ext)` | `sounds/{id}/thumbnail/thumbnail.{ext}` |
+| `coverThumbnail($id, $ext)` | `covers/{id}/thumbnail/thumbnail.{ext}` |
+| `coverArtwork($id, $ext)` | `covers/{id}/artwork/artwork.{ext}` |
+| `coverPlayerBackground($id, $ext)` | `covers/{id}/player-background/background.{ext}` |
+| `vibeThumbnail($id, $ext)` | `vibes/{id}/thumbnail/thumbnail.{ext}` |
+| `vibeArtwork($id, $ext)` | `vibes/{id}/artwork/artwork.{ext}` |
+| `vibePlayerBackground($id, $ext)` | `vibes/{id}/player-background/background.{ext}` |
+| `userAvatar($id, $ext)` | `users/{id}/avatar/avatar.{ext}` |
+
+Extensions are chosen server-side from **validated** MIME types so the suffix matches file contents (see [`laravel-upload-endpoints.md`](laravel-upload-endpoints.md)). The strategy doc still illustrates `.webp` as the long-term target for bitmaps; uploads today may use `jpg`, `png`, or `webp` until a conversion pipeline exists.
 
 ## `publicUrl` and `keyFromUrl`
 
@@ -73,7 +76,7 @@ Tables/columns are skipped if they do not exist (`Schema::hasTable` / `Schema::h
 
 ## Next steps
 
-1. Authenticated upload endpoints (multipart / validation) returning CDN URLs.
-2. Admin UI uploads via Laravel only (no client Spaces keys).
+1. **Shipped:** [`laravel-upload-endpoints.md`](laravel-upload-endpoints.md) — `POST /api/admin/uploads`.
+2. Admin UI (Nuxt) uploads via Laravel only (no client Spaces keys); persist returned URLs in CRUD.
 3. Safe deletion workflow using reference counts + [deletion rules](storage-strategy.md#deletion-rules).
 4. Optional maintenance commands (dry-run first).

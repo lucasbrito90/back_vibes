@@ -129,8 +129,8 @@ Operational guideline: implement **reference counting or orphan scans** before d
 
 ## Future implementation phases
 
-1. **Laravel Spaces service** — configured client, URL builders (CDN vs internal), env-driven credentials. **Implementation notes:** [`laravel-spaces-service.md`](laravel-spaces-service.md) (disk `spaces`, path builder, `publicUrl` / `keyFromUrl`, reference counting). Upload routes are **not** part of that doc’s first slice.
-2. **Laravel upload endpoints** — authenticated routes that accept uploads (multipart / signed strategy TBD), validate MIME/size, write keys under the layout above, return public CDN URLs.
+1. **Laravel Spaces service** — configured client, URL builders (CDN vs internal), env-driven credentials. **Implementation notes:** [`laravel-spaces-service.md`](laravel-spaces-service.md) (disk `spaces`, path builder, `publicUrl` / `keyFromUrl`, reference counting).
+2. **Laravel upload endpoints** — authenticated routes that accept uploads (multipart / signed strategy TBD), validate MIME/size, write keys under the layout above, return public CDN URLs. **Shipped:** generic admin multipart endpoint documented in [`laravel-upload-endpoints.md`](laravel-upload-endpoints.md) (`POST /api/admin/uploads`). Nuxt integration is still pending.
 3. **Nuxt Admin** — replace direct-to-third-party uploads with **proxied uploads via Laravel**; display returned CDN URLs only.
 4. **Reset / cleanup command** — optional maintenance to reconcile DB URLs vs bucket inventory (dry-run first).
 5. **Safe asset deletion** — service + policies enforcing **Deletion rules**; possibly soft-delete flags before physical delete.
@@ -141,6 +141,6 @@ Operational guideline: implement **reference counting or orphan scans** before d
 
 ## Related documentation
 
-- Backend API docs: `back_vibes/docs/` (e.g. cover bundles, preset vibes).
+- Laravel admin uploads: [`laravel-upload-endpoints.md`](laravel-upload-endpoints.md).
 - Admin uploads (current behaviour): `ixora-admin/docs/upload-validation.md`.
 - Mobile artwork fallbacks: `front_vibes/docs/artwork-background-strategy.md`.

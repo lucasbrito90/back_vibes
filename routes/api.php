@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\UploadAssetController;
 use App\Http\Controllers\Api\AdminAccessRequestController;
 use App\Http\Controllers\Api\CoverBundleController;
 use App\Http\Controllers\Api\FirebaseAuthController;
@@ -48,6 +49,8 @@ Route::middleware('firebase.auth')->group(function () {
         Route::put('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'update']);
         Route::delete('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'destroy']);
         Route::put('preset-vibes/{preset_vibe}/sounds', [PresetVibeController::class, 'syncSounds']);
+
+        Route::post('admin/uploads', [UploadAssetController::class, 'store']);
     });
 
     Route::prefix('vibes/{vibe}')->group(function () {
