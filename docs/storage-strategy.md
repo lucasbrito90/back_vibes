@@ -129,7 +129,7 @@ Operational guideline: implement **reference counting or orphan scans** before d
 
 ## Future implementation phases
 
-1. **Laravel Spaces service** — configured client, URL builders (CDN vs internal), env-driven credentials.
+1. **Laravel Spaces service** — configured client, URL builders (CDN vs internal), env-driven credentials. **Implementation notes:** [`laravel-spaces-service.md`](laravel-spaces-service.md) (disk `spaces`, path builder, `publicUrl` / `keyFromUrl`, reference counting). Upload routes are **not** part of that doc’s first slice.
 2. **Laravel upload endpoints** — authenticated routes that accept uploads (multipart / signed strategy TBD), validate MIME/size, write keys under the layout above, return public CDN URLs.
 3. **Nuxt Admin** — replace direct-to-third-party uploads with **proxied uploads via Laravel**; display returned CDN URLs only.
 4. **Reset / cleanup command** — optional maintenance to reconcile DB URLs vs bucket inventory (dry-run first).
