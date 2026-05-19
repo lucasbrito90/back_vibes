@@ -9,9 +9,14 @@ use App\Http\Requests\StoreCoverBundleRequest;
 use App\Http\Requests\UpdateCoverBundleRequest;
 use App\Http\Resources\CoverBundleResource;
 use App\Models\CoverBundle;
+use App\Models\PresetVibe;
+use App\Services\Storage\SafeAssetDeletionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class CoverBundleController extends Controller
 {
@@ -85,10 +90,82 @@ class CoverBundleController extends Controller
         return new CoverBundleResource($coverBundle->fresh());
     }
 
-    public function destroy(CoverBundle $coverBundle): JsonResponse
+    public function destroy(CoverBundle $coverBundle, SafeAssetDeletionService $safeAssetDeletion): JsonResponse
     {
-        $coverBundle->delete();
+        if ($this->coverBundleReferencedByPresetVibes($coverBundle)) {
+            Log::warning('Cover bundle delete blocked: bundle is referenced by preset vibes', [
+                'cover_bundle_id' => $coverBundle->id,
+            ]);
+
+            return response()->json([
+                'message' => 'This cover bundle is currently used by one or more vibes and cannot be deleted.',
+            ], 409);
+        }
+
+        if ($this->coverBundleUrlsReferencedByUserVibes($coverBundle)) {
+            Log::warning('Cover bundle delete blocked: bundle URLs are referenced by user vibes', [
+                'cover_bundle_id' => $coverBundle->id,
+            ]);
+
+            return response()->json([
+                'message' => 'This cover bundle is currently used by one or more vibes and cannot be deleted.',
+            ], 409);
+        }
+
+        $urls = [];
+        foreach (['thumbnail_url', 'artwork_url', 'player_background_url'] as $field) {
+            $value = $coverBundle->{$field};
+            if (is_string($value) && trim($value) !== '') {
+                $urls[] = trim($value);
+            }
+        }
+
+        DB::transaction(static fn () => $coverBundle->delete());
+
+        foreach ($safeAssetDeletion->deleteUrlsIfUnreferenced($urls) as $url => $status) {
+            if ($status === SafeAssetDeletionService::STATUS_FAILED) {
+                Log::warning('Cover bundle deleted from DB but Spaces object cleanup failed', [
+                    'url' => $url,
+                    'status' => $status,
+                ]);
+            }
+        }
 
         return response()->json(['message' => 'Cover bundle deleted.']);
+    }
+
+    private function coverBundleReferencedByPresetVibes(CoverBundle $coverBundle): bool
+    {
+        if (! Schema::hasTable('preset_vibes')) {
+            return false;
+        }
+
+        return PresetVibe::query()->where('cover_bundle_id', $coverBundle->id)->exists();
+    }
+
+    private function coverBundleUrlsReferencedByUserVibes(CoverBundle $coverBundle): bool
+    {
+        if (! Schema::hasTable('vibes')) {
+            return false;
+        }
+
+        $columns = ['thumbnail_url', 'artwork_url', 'player_background_url'];
+
+        foreach ($columns as $column) {
+            if (! Schema::hasColumn('vibes', $column)) {
+                continue;
+            }
+
+            $url = $coverBundle->{$column};
+            if (! is_string($url) || trim($url) === '') {
+                continue;
+            }
+
+            if (DB::table('vibes')->where($column, trim($url))->exists()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

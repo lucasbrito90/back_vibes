@@ -1,19 +1,53 @@
 # Safe asset deletion (Laravel)
 
-This document describes how **`DELETE /api/sounds/{sound}`** removes catalog rows and optionally deletes backing objects in **DigitalOcean Spaces**.
+Laravel removes catalog rows first, then optionally deletes objects in **DigitalOcean Spaces** using **`SafeAssetDeletionService`**, **`DigitalOceanSpacesService`**, and **`StorageAssetReferenceService`**.
+
+Shared behaviour:
+
+- **Post-delete reference counting:** cleanup runs **after** the owning row is gone, so `countReferencesToUrl` does not count that row.
+- **External URLs:** if `keyFromUrl` returns `null`, the URL is skipped (no HTTP error).
+- **Shared URLs:** if any tracked column still stores the same URL string, the object is **not** deleted.
+- **Storage failures:** a failed Spaces delete does **not** roll back the database row; warnings are logged.
 
 ---
 
-## Sound delete is blocked when attached to a vibe
+## Status outcomes (per URL)
 
-Before any database or storage cleanup, the API checks:
-
-| Table | Meaning |
+| Status | Meaning |
 | --- | --- |
-| `vibe_sounds` | Sound layer on a **user** vibe |
-| `preset_vibe_sounds` | Sound layer on an **admin preset** vibe |
+| `deleted` | Spaces `delete` succeeded |
+| `skipped_external_url` | Not our CDN/origin URL |
+| `skipped_still_referenced` | Another DB row still stores this URL |
+| `empty` | Null/blank (single-URL helper only; batch ignores empties) |
+| `failed` | `delete` returned false |
 
-If any row references `sound_id`, the API responds with **`409 Conflict`** and JSON:
+Batch helper **`deleteUrlsIfUnreferenced`** returns **`url => status`** with deduplicated URLs.
+
+---
+
+## Logging (storage cleanup)
+
+| Situation | Level |
+| --- | --- |
+| Object removed from Spaces | `info` |
+| Skipped — still referenced | `info` |
+| Skipped — external URL | `info` |
+| Skipped — empty URL | `info` |
+| Spaces delete failed | `warning` |
+| DB row deleted but cleanup failed (controller) | `warning` |
+
+---
+
+## `DELETE /api/sounds/{sound}`
+
+### When delete is blocked (`409 Conflict`)
+
+| Check | Table / meaning |
+| --- | --- |
+| Sound layer on user vibe | `vibe_sounds.sound_id` |
+| Sound layer on preset | `preset_vibe_sounds.sound_id` |
+
+Response body:
 
 ```json
 {
@@ -21,77 +55,51 @@ If any row references `sound_id`, the API responds with **`409 Conflict`** and J
 }
 ```
 
-The **`Sound` row is not deleted**. No Spaces cleanup runs.
+### Flow
+
+1. Collect **`file_url`** and **`thumbnail_url`** (non-empty).
+2. Delete **`sounds`** row in a transaction.
+3. Call **`deleteUrlsIfUnreferenced`** for those URLs.
+
+### Controller logging
+
+- **`warning`** — delete blocked (sound in use).
 
 ---
 
-## When Spaces objects are deleted
+## `DELETE /api/cover-bundles/{cover_bundle}`
 
-After the checks above succeed:
+### When delete is blocked (`409 Conflict`)
 
-1. **`file_url`** and **`thumbnail_url`** are collected (non-empty strings only; duplicates are deduplicated).
-2. The **`Sound` row is deleted** inside a transaction.
-3. For each URL, **`SafeAssetDeletionService`** decides whether to call **`DigitalOceanSpacesService::delete()`**.
+1. **Preset vibes:** any **`preset_vibes`** row with **`cover_bundle_id`** equal to this bundle.
+2. **User vibes / copied URLs:** any **`vibes`** row where **`thumbnail_url`**, **`artwork_url`**, or **`player_background_url`** equals the bundle’s value **for that same column** (non-empty URLs only). Copied preset URLs count as use.
 
-Deletion runs **only after** the sound row is gone, so reference counting does **not** need special casing for “this sound’s own row.”
+Same response for both cases:
 
-### Reference counting
+```json
+{
+  "message": "This cover bundle is currently used by one or more vibes and cannot be deleted."
+}
+```
 
-For each URL, we call **`StorageAssetReferenceService::countReferencesToUrl($url)`**, which counts every row (across configured tables/columns) that stores **exactly** that URL string.
+### Controller logging
 
-- **`count === 0`** — safe to delete the object from Spaces (nothing in the DB points at that URL anymore).
-- **`count > 0`** — **shared** asset; the object is **not** deleted.
+- **`warning`** — blocked because referenced by **preset vibes** (`cover_bundle_id`).
+- **`warning`** — blocked because **bundle URLs appear on user vibes**.
 
-### Spaces vs external URLs
+### Flow
 
-We derive an object key with **`DigitalOceanSpacesService::keyFromUrl($url)`**.
-
-- If **`keyFromUrl` returns `null`**, the URL is treated as **external** (e.g. legacy Firebase or another host). We **do not** delete; no error is raised for the HTTP client.
-- If a key is resolved, we attempt delete only when **`countReferencesToUrl === 0`** as above.
-
----
-
-## Status outcomes (per URL)
-
-Internal logging and the deletion helper distinguish:
-
-| Status | Meaning |
-| --- | --- |
-| `deleted` | Spaces **`delete`** succeeded for the resolved key |
-| `skipped_external_url` | URL does not map to our Spaces CDN/origin |
-| `skipped_still_referenced` | Another DB row still stores this URL |
-| `empty` | Null/blank URL (ignored in batch helpers) |
-| `failed` | **`delete`** returned false (e.g. SDK/network); see logs |
-
-Batch helper **`deleteUrlsIfUnreferenced`** returns a map **`url => status`** with deduplicated URLs.
-
----
-
-## Failures after DB delete
-
-If the **`Sound` row was deleted** but removing an object from Spaces **fails**, we **do not** roll back the database change. A **warning** is logged so operators can reconcile the orphan object manually.
-
----
-
-## Logging
-
-| Situation | Level |
-| --- | --- |
-| Delete blocked (sound in use) | `warning` |
-| Object deleted from Spaces | `info` |
-| Skipped — still referenced | `info` |
-| Skipped — external URL | `info` |
-| Skipped — empty URL | `info` |
-| Spaces delete failed | `warning` |
-| DB deleted but cleanup failed (controller summary) | `warning` |
+1. Collect **`thumbnail_url`**, **`artwork_url`**, **`player_background_url`** (non-empty).
+2. Delete **`cover_bundles`** row in a transaction.
+3. Call **`deleteUrlsIfUnreferenced`** for those URLs.
 
 ---
 
 ## Limitations
 
-- Only **canonical URL equality** is considered; two different URLs that point at the same bytes are **not** merged.
-- Tables/columns surveyed by **`StorageAssetReferenceService`** define “shared”; new URL columns require updating that service to stay safe.
-- **`DELETE /api/sounds/{sound}`** is the scope documented here; other entities are unchanged.
+- Only **exact URL string** equality; aliases or different URLs for the same bytes are not merged.
+- Reference surfaces are defined by **`StorageAssetReferenceService`** URL columns; new fields require updating that service.
+- Scoped to **`DELETE`** on catalog **Sound** and **CoverBundle** as implemented in their controllers.
 
 ---
 
@@ -101,3 +109,4 @@ If the **`Sound` row was deleted** but removing an object from Spaces **fails**,
 - `App\Services\Storage\DigitalOceanSpacesService`
 - `App\Services\Storage\StorageAssetReferenceService`
 - `App\Http\Controllers\Api\SoundController::destroy`
+- `App\Http\Controllers\Api\CoverBundleController::destroy`
