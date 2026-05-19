@@ -1,0 +1,14 @@
+{
+	frankenphp
+	order php_server before file_server
+}
+
+:8080 {
+	root * /app/public
+	encode zstd gzip
+
+	# Laravel front controller (FrankenPHP worker mode off — simple php_server)
+	php_server
+
+	file_server
+}
