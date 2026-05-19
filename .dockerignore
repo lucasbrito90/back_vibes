@@ -1,0 +1,19 @@
+# Dependencies / VCS
+/vendor/
+/node_modules/
+.git/
+
+# Laravel writable paths (avoid copying host cache/logs into the image)
+/storage/logs/
+/storage/framework/cache/
+/storage/framework/sessions/
+/storage/framework/views/
+
+# Secrets & local env (injected at runtime by App Platform)
+.env
+.env.*
+!.env.example
+
+# Never bake Firebase admin SDK JSON into the image
+**/*firebase-adminsdk*.json
+**/*-firebase-adminsdk-*.json
