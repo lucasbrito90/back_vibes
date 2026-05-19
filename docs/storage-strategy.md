@@ -109,13 +109,14 @@ Object deletion in Spaces is **irreversible** and **must stay consistent** with 
    - the sound is **not** attached to any **preset vibe** (`preset_vibe_sounds`).
 4. **Cover bundle assets** (`covers/...`): remove only if:
    - no **PresetVibe** references the bundle via `cover_bundle_id`, **and**
-   - no **user Vibe** still stores URLs that **point at** those bundle objects (copied URLs count as separate references).
+   - no **user Vibe** still stores URLs that **point at** those bundle objects (copied URLs count as separate references).  
+   **Implementation:** Laravel blocks `DELETE /api/cover-bundles/{id}` when either condition fails, then removes Spaces keys only when no row still stores the same URL (see [`safe-asset-deletion.md`](safe-asset-deletion.md)).
 5. **Vibe assets** (`vibes/...`): delete **only** objects that are **exclusive** to that vibe — i.e. URLs written under `vibes/{vibe_id}/...` that are **not** shared objects.
 6. **Copy semantics:** When a vibe **copies** URLs from a cover bundle (e.g. preset import or “apply bundle”), those vibe rows **reference the same URLs** as the bundle until replaced. **Deleting “the vibe’s assets” must not remove bundle-owned keys** unless policy explicitly forks files into `vibes/{id}/...` first.
 
 Operational guideline: implement **reference counting or orphan scans** before delete; default to **no delete** when uncertain.
 
-**Implementation (catalog sounds):** Laravel blocks delete when the sound is attached to user or preset vibes, then removes Spaces objects only when no row still stores the same URL. Details: [`safe-asset-deletion.md`](safe-asset-deletion.md).
+**Implementation:** Laravel blocks catalog deletes when relational rules fail, then removes Spaces objects only when no row still stores the same URL. **Sounds:** [`safe-asset-deletion.md`](safe-asset-deletion.md). **Cover bundles:** same document (`DELETE /api/cover-bundles/{cover_bundle}`).
 
 ---
 
@@ -135,7 +136,7 @@ Operational guideline: implement **reference counting or orphan scans** before d
 2. **Laravel upload endpoints** — authenticated routes that accept uploads (multipart / signed strategy TBD), validate MIME/size, write keys under the layout above, return public CDN URLs. **Shipped:** generic admin multipart endpoint documented in [`laravel-upload-endpoints.md`](laravel-upload-endpoints.md) (`POST /api/admin/uploads`). Nuxt integration is still pending.
 3. **Nuxt Admin** — replace direct-to-third-party uploads with **proxied uploads via Laravel**; display returned CDN URLs only.
 4. **Reset / cleanup command** — optional maintenance to reconcile DB URLs vs bucket inventory (dry-run first).
-5. **Safe asset deletion** — **partially shipped** for **catalog sounds** (`DELETE /api/sounds/{sound}`): reference-checked Spaces cleanup after DB delete (see [`safe-asset-deletion.md`](safe-asset-deletion.md)). Other entities / soft-delete TBD.
+5. **Safe asset deletion** — **partially shipped** for **catalog sounds** (`DELETE /api/sounds/{sound}`) and **cover bundles** (`DELETE /api/cover-bundles/{cover_bundle}`): reference-checked Spaces cleanup after DB delete (see [`safe-asset-deletion.md`](safe-asset-deletion.md)). Other entities / soft-delete TBD.
 6. **Mobile** — remain **read-only** against CDN; no Spaces credentials in the app binary or env shipped to devices.
 7. **Avatar upload** — future Laravel endpoint + mobile picker posting to API (still **no** client Spaces keys).
 
@@ -143,7 +144,7 @@ Operational guideline: implement **reference counting or orphan scans** before d
 
 ## Related documentation
 
-- Safe deletion (sounds): [`safe-asset-deletion.md`](safe-asset-deletion.md).
+- Safe deletion (sounds & cover bundles): [`safe-asset-deletion.md`](safe-asset-deletion.md).
 - Laravel admin uploads: [`laravel-upload-endpoints.md`](laravel-upload-endpoints.md).
 - Admin uploads (current behaviour): `ixora-admin/docs/upload-validation.md`.
 - Mobile artwork fallbacks: `front_vibes/docs/artwork-background-strategy.md`.
