@@ -7,8 +7,12 @@ use App\Http\Requests\StoreSoundRequest;
 use App\Http\Requests\UpdateSoundRequest;
 use App\Http\Resources\SoundResource;
 use App\Models\Sound;
+use App\Services\Storage\SafeAssetDeletionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class SoundController extends Controller
@@ -105,10 +109,44 @@ class SoundController extends Controller
         return new SoundResource($sound->fresh());
     }
 
-    public function destroy(Sound $sound): JsonResponse
+    public function destroy(Sound $sound, SafeAssetDeletionService $safeAssetDeletion): JsonResponse
     {
-        $sound->delete();
+        if ($this->soundIsUsedOnAnyVibe($sound)) {
+            Log::warning('Sound delete blocked: sound is attached to one or more vibes', ['sound_id' => $sound->id]);
+
+            return response()->json([
+                'message' => 'This sound is currently used by one or more vibes and cannot be deleted.',
+            ], 409);
+        }
+
+        $urls = [];
+        foreach ([$sound->file_url, $sound->thumbnail_url] as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                $urls[] = trim($candidate);
+            }
+        }
+
+        DB::transaction(static fn () => $sound->delete());
+
+        foreach ($safeAssetDeletion->deleteUrlsIfUnreferenced($urls) as $url => $status) {
+            if ($status === SafeAssetDeletionService::STATUS_FAILED) {
+                Log::warning('Sound deleted from DB but Spaces object cleanup failed', [
+                    'url' => $url,
+                    'status' => $status,
+                ]);
+            }
+        }
 
         return response()->json(['message' => 'Sound deleted.']);
+    }
+
+    private function soundIsUsedOnAnyVibe(Sound $sound): bool
+    {
+        if (Schema::hasTable('vibe_sounds') && DB::table('vibe_sounds')->where('sound_id', $sound->id)->exists()) {
+            return true;
+        }
+
+        return Schema::hasTable('preset_vibe_sounds')
+            && DB::table('preset_vibe_sounds')->where('sound_id', $sound->id)->exists();
     }
 }
