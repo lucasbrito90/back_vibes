@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Firebase;
 
-use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use JsonException;
 
@@ -57,9 +56,7 @@ final class FirebaseCredentialsResolver
         try {
             $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException $e) {
-            Log::error('Firebase admin credentials: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.', [
-                'exception' => $e->getMessage(),
-            ]);
+            error_log('Firebase admin credentials: FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON. '.$e->getMessage());
 
             throw new InvalidArgumentException(
                 'FIREBASE_SERVICE_ACCOUNT_JSON must contain valid JSON for the Firebase service account. '.$e->getMessage(),
@@ -68,7 +65,7 @@ final class FirebaseCredentialsResolver
         }
 
         if (! is_array($data) || array_is_list($data)) {
-            Log::error('Firebase admin credentials: FIREBASE_SERVICE_ACCOUNT_JSON decoded to a non-object JSON value.');
+            error_log('Firebase admin credentials: FIREBASE_SERVICE_ACCOUNT_JSON decoded to a non-object JSON value.');
 
             throw new InvalidArgumentException(
                 'FIREBASE_SERVICE_ACCOUNT_JSON must decode to a JSON object (service account key).'
@@ -77,7 +74,7 @@ final class FirebaseCredentialsResolver
 
         $projectId = $data['project_id'] ?? null;
         if (! is_string($projectId) || $projectId === '') {
-            Log::error('Firebase admin credentials: FIREBASE_SERVICE_ACCOUNT_JSON is missing project_id.');
+            error_log('Firebase admin credentials: FIREBASE_SERVICE_ACCOUNT_JSON is missing project_id.');
 
             throw new InvalidArgumentException(
                 'FIREBASE_SERVICE_ACCOUNT_JSON must include a non-empty string "project_id" field (Firebase Google service account JSON).'
