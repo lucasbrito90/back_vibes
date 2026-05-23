@@ -5,11 +5,29 @@ declare(strict_types=1);
 use App\Models\Sound;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Kreait\Firebase\Contract\Auth;
 use Lcobucci\JWT\Token\DataSet;
 use Lcobucci\JWT\UnencryptedToken;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function (): void {
+    \Illuminate\Support\Facades\Config::set('filesystems.disks.spaces', [
+        'driver' => 's3',
+        'key' => 'test',
+        'secret' => 'test',
+        'region' => 'tor1',
+        'bucket' => 'ixora-buckets',
+        'endpoint' => 'https://tor1.digitaloceanspaces.com',
+        'url' => 'https://ixora-buckets.tor1.cdn.digitaloceanspaces.com',
+        'use_path_style_endpoint' => false,
+        'throw' => true,
+    ]);
+
+    \Illuminate\Support\Facades\Storage::fake('spaces');
+});
 
 function jwtForSoundCatalogUser(User $user): UnencryptedToken
 {
@@ -110,7 +128,7 @@ test('rejected user cannot POST /api/sounds', function () {
         ->assertJson(['message' => 'Admin access is not approved.']);
 });
 
-test('approved admin can POST /api/sounds', function () {
+test('approved admin can POST /api/admin/sounds with audio and thumbnail uploads', function () {
     $user = User::factory()->create([
         'firebase_uid' => 'fb-admin-post',
         'role' => 'admin',
@@ -119,19 +137,59 @@ test('approved admin can POST /api/sounds', function () {
 
     $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->once()->with('tok')->andReturn(jwtForSoundCatalogUser($user)));
 
-    $this->postJson('/api/sounds', [
+    $audio = UploadedFile::fake()->create('clip.mp3', 50)->mimeType('audio/mpeg');
+    $thumb = UploadedFile::fake()->create('thumb.png', 8)->mimeType('image/png');
+
+    $response = $this->post('/api/admin/sounds', [
         'name' => 'Admin sound',
         'category' => 'Catalog',
-        'file_url' => 'https://cdn.example/admin.mp3',
         'duration_seconds' => 90,
         'tags' => ['ambient', 'loop'],
         'is_active' => true,
-    ], ['Authorization' => 'Bearer tok'])
-        ->assertCreated()
+        'audio_file' => $audio,
+        'thumbnail_file' => $thumb,
+    ], [
+        'Authorization' => 'Bearer tok',
+        'Accept' => 'application/json',
+    ]);
+
+    $response->assertCreated()
         ->assertJsonPath('data.name', 'Admin sound')
         ->assertJsonPath('data.duration_seconds', 90);
 
-    expect(Sound::query()->where('name', 'Admin sound')->exists())->toBeTrue();
+    $sound = Sound::query()->where('name', 'Admin sound')->first();
+    expect($sound)->not->toBeNull()
+        ->and($sound->file_url)->toStartWith('https://ixora-buckets.tor1.cdn.digitaloceanspaces.com/sounds/'.$sound->id.'/audio/original.mp3')
+        ->and($sound->thumbnail_url)->toStartWith('https://ixora-buckets.tor1.cdn.digitaloceanspaces.com/sounds/'.$sound->id.'/thumbnail/thumbnail.png');
+
+    Storage::disk('spaces')->assertExists('sounds/'.$sound->id.'/audio/original.mp3');
+    Storage::disk('spaces')->assertExists('sounds/'.$sound->id.'/thumbnail/thumbnail.png');
+});
+
+test('approved admin cannot create sound with file_url in body', function () {
+    $user = User::factory()->create([
+        'firebase_uid' => 'fb-admin-post-url',
+        'role' => 'admin',
+        'admin_access_status' => 'approved',
+    ]);
+
+    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->once()->with('tok')->andReturn(jwtForSoundCatalogUser($user)));
+
+    $audio = UploadedFile::fake()->create('clip.mp3', 50)->mimeType('audio/mpeg');
+    $thumb = UploadedFile::fake()->create('thumb.png', 8)->mimeType('image/png');
+
+    $this->post('/api/admin/sounds', [
+        'name' => 'X',
+        'category' => 'Y',
+        'duration_seconds' => 1,
+        'tags' => ['t'],
+        'audio_file' => $audio,
+        'thumbnail_file' => $thumb,
+        'file_url' => 'https://evil.example/a.mp3',
+    ], [
+        'Authorization' => 'Bearer tok',
+        'Accept' => 'application/json',
+    ])->assertUnprocessable();
 });
 
 test('approved admin can PATCH /api/sounds/{sound}', function () {

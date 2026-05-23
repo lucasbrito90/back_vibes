@@ -26,6 +26,10 @@ class UpdateSoundRequest extends FormRequest
             'tags' => ['sometimes', 'nullable', 'array'],
             'tags.*' => ['string', 'max:128'],
             'is_active' => ['sometimes', 'boolean'],
+            'audio_url' => ['prohibited'],
+            'artwork_url' => ['prohibited'],
+            'player_background_url' => ['prohibited'],
+            'description' => ['prohibited'],
         ];
     }
 

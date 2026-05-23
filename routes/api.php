@@ -34,6 +34,7 @@ Route::middleware('firebase.auth')->group(function () {
     Route::post('preset-vibes/{preset_vibe}/import', [PresetVibeController::class, 'import']);
 
     Route::middleware('admin.approved')->group(function () {
+        Route::post('admin/sounds', [SoundController::class, 'store']);
         Route::post('sounds', [SoundController::class, 'store']);
         Route::patch('sounds/{sound}', [SoundController::class, 'update']);
         Route::put('sounds/{sound}', [SoundController::class, 'update']);
@@ -61,6 +62,5 @@ Route::middleware('firebase.auth')->group(function () {
     });
 });
 
-if (app()->environment('testing')) {
-    Route::middleware(['firebase.auth', 'admin.approved'])->get('__admin_gate', fn () => response()->json(['data' => ['ok' => true]]));
-}
+// Smoke route for admin middleware (used by tests; harmless in other envs).
+Route::middleware(['firebase.auth', 'admin.approved'])->get('__admin_gate', fn () => response()->json(['data' => ['ok' => true]]));
