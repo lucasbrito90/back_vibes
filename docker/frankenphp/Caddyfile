@@ -7,6 +7,11 @@
 	root * /app/public
 	encode zstd gzip
 
+	# Permit large multipart uploads before PHP/post limits (otherwise Caddy rejects with HTTP 413 before Laravel/CORS runs).
+	request_body {
+		max_size 64MiB
+	}
+
 	# Laravel front controller (FrankenPHP worker mode off — simple php_server)
 	php_server
 
