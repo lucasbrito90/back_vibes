@@ -199,10 +199,17 @@ DB_USERNAME=<user>
 DB_PASSWORD=<password>
 DB_SSLMODE=require
 
-# Preferred on DigitalOcean App Platform and similar: paste the full service account JSON (single line) as a secret.
-FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"...", ... }
-
-# Alternative when the JSON file exists on the server (e.g. classic Droplet deploy):
+# Preferred on DigitalOcean App Platform — discrete Laravel env vars (avoids brittle JSON quoting):
+# FIREBASE_TYPE=service_account
+# FIREBASE_PROJECT_ID=...
+# FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+# FIREBASE_CLIENT_EMAIL=firebase-adminsdk@....iam.gserviceaccount.com
+# (optional) FIREBASE_PRIVATE_KEY_ID, FIREBASE_CLIENT_ID, FIREBASE_*_URI / cert URLs
+#
+# Legacy single-line blob (still supported by the app — not recommended):
+# FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"...", ... }
+#
+# When the JSON key file exists on disk (classic Droplet / local):
 # FIREBASE_CREDENTIALS=/var/www/back_vibes/storage/app/firebase-adminsdk.json
 ```
 
