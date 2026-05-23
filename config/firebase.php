@@ -27,14 +27,16 @@ return [
              * Credentials / Service Account
              * ------------------------------------------------------------------------
              *
-             * Resolved via FirebaseCredentialsResolver:
+             * Resolved via FirebaseCredentialsResolver (no facades; safe during config:cache):
              *
-             * 1. FIREBASE_SERVICE_ACCOUNT_JSON — full service account JSON as a single line (recommended for
-             *    DigitalOcean App Platform and other hosts without a credentials file on disk).
-             * 2. FIREBASE_CREDENTIALS — path to the JSON file (relative paths use Laravel base_path()).
-             * 3. GOOGLE_APPLICATION_CREDENTIALS — path fallback (Google SDK convention).
+             * 1. Discrete FIREBASE_* env vars — preferred on App Platform / CI (avoid inline JSON blobs):
+             *    FIREBASE_TYPE, FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, FIREBASE_CLIENT_EMAIL, etc.
+             *    Multi-line PEM: use FIREBASE_PRIVATE_KEY with literal `\n` sequences — Laravel normalizes these.
+             * 2. FIREBASE_SERVICE_ACCOUNT_JSON — legacy inline JSON (deprecated).
+             * 3. FIREBASE_CREDENTIALS — JSON file path (local dev typical).
+             * 4. GOOGLE_APPLICATION_CREDENTIALS — SDK path fallback.
              *
-             * If all are empty, the Firebase SDK may attempt auto-discovery (not reliable on App Platform).
+             * If none are usable, Firebase SDK auto-discovery applies (often fails on managed platform).
              *
              * https://firebase.google.com/docs/admin/setup#initialize_the_sdk
              *
