@@ -165,6 +165,39 @@ final class UploadAssetValidator
         }
     }
 
+    /**
+     * @param  string  $assetType  `thumbnail`|`artwork`|`player_background` for entity `cover`
+     *
+     * @throws ValidationException
+     */
+    public static function assertValidCoverCatalogImage(UploadedFile $file, string $assetType): void
+    {
+        $allowed = ['thumbnail', 'artwork', 'player_background'];
+        if (! in_array($assetType, $allowed, true)) {
+            throw new \InvalidArgumentException('Invalid cover bundle asset type: '.$assetType);
+        }
+
+        if (! $file->isValid()) {
+            $field = $assetType.'_file';
+
+            throw ValidationException::withMessages([
+                $field => ['The image upload failed.'],
+            ]);
+        }
+
+        if ($file->getSize() > self::IMAGE_MAX_BYTES) {
+            throw ValidationException::withMessages([
+                $assetType.'_file' => ['Image must not exceed 5 MB.'],
+            ]);
+        }
+
+        if (self::resolveExtension($file, 'cover', $assetType) === null) {
+            throw ValidationException::withMessages([
+                $assetType.'_file' => ['Invalid image type. Allowed: JPEG, PNG, WebP.'],
+            ]);
+        }
+    }
+
     /** @throws ValidationException */
     public static function assertValidSoundThumbnail(UploadedFile $file): void
     {

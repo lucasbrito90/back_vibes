@@ -89,7 +89,7 @@ Object keys follow the layout in [`storage-strategy.md`](storage-strategy.md), w
 }
 ```
 
-`url` is always built from **`DO_SPACES_CDN_URL`** (public CDN). This endpoint **does not** mutate `sounds`, `cover_bundles`, `vibes`, or `users` columns automatically — callers PATCH the entity afterward (except **`POST /api/admin/sounds` / `POST /api/sounds`**, which create a sound **and** set **`file_url` / `thumbnail_url`** inside Laravel).
+`url` is always built from **`DO_SPACES_CDN_URL`** (public CDN). This endpoint **does not** mutate `sounds`, `cover_bundles`, `vibes`, or `users` columns automatically — callers PATCH the entity afterward (except **`POST /api/admin/sounds` / `POST /api/sounds`**, which create a sound **and** set **`file_url` / `thumbnail_url`**, and **`POST /api/cover-bundles`**, which accepts three image files **and** sets **`thumbnail_url` / `artwork_url` / `player_background_url`** — see [`cover-bundles.md`](cover-bundles.md)).
 
 ## Errors
 
