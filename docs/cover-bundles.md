@@ -8,7 +8,7 @@ A **Cover Bundle** is a **reusable visual identity package** for vibes: thumbnai
 
 ## Recommended asset sizes
 
-These are guidelines for designers and admins; the API stores HTTPS URLs only.
+These are guidelines for designers and admins. **Create** uploads are validated JPEG/PNG/WebP **up to 5 MB each** (`UploadAssetValidator` — same limits as [`laravel-upload-endpoints.md`](laravel-upload-endpoints.md)).
 
 | Field | Suggested size |
 |--------|----------------|
@@ -47,9 +47,28 @@ JSON uses Laravel API resources (typically wrapped under `data`). Fields:
 1. Sync/login so Laravel knows the Firebase user (`POST /api/auth/sync` as today).
 2. **GET `/api/cover-bundles`** with `Authorization: Bearer <Firebase ID token>` → pick an active bundle for UI theming when vibe assignment exists.
 
-## Admin creation (future UI)
+## Admin creation (multipart)
 
-Approved admins call **POST `/api/cover-bundles`** with validated JSON (URLs must pass Laravel `url` rule). The Nuxt admin panel can be wired later without changing these contracts.
+Approved admins **create** bundles with uploads in one request (no pasted URLs):
+
+**`POST /api/cover-bundles`** · **`multipart/form-data`**
+
+| Field | Rule |
+|--------|------|
+| `name` | required string |
+| `category` | required string |
+| `tags` | required array, min **1** entry |
+| `description` | optional |
+| `is_active` | optional boolean (`true`/`false`/`1`/`0`) |
+| `thumbnail_file` | required image file |
+| `artwork_file` | required image file |
+| `player_background_file` | required image file |
+
+**Prohibited** on create (use files instead): `thumbnail_url`, `artwork_url`, `player_background_url`.
+
+Laravel uploads to Spaces via **`DigitalOceanSpacesService`** / **`StoragePathBuilder`**, persists **public CDN URLs** on the model, and responds with **`CoverBundleResource`** (**201**). Image MIME/size rules align with **`POST /api/admin/uploads`** image policy (~5 MiB — see [`laravel-upload-endpoints.md`](laravel-upload-endpoints.md)).
+
+**Edit**: **`PATCH`** may still patch metadata and/or paste **`http(s)`** URLs per `UpdateCoverBundleRequest`. Individual replacements can continue to use **`POST /api/admin/uploads`** with existing `cover` + entity id after the row exists.
 
 ## Policy
 
