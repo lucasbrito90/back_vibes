@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\CoverBundle\CreateCoverBundleWithUploadedFiles;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreCoverBundleRequest;
 use App\Http\Requests\UpdateCoverBundleRequest;
@@ -43,22 +44,14 @@ class CoverBundleController extends Controller
         return new CoverBundleResource($coverBundle);
     }
 
-    public function store(StoreCoverBundleRequest $request): JsonResponse
+    public function store(StoreCoverBundleRequest $request, CreateCoverBundleWithUploadedFiles $createCoverBundle): JsonResponse
     {
-        $validated = $request->validated();
-
-        $bundle = CoverBundle::query()->create([
-            'name' => $validated['name'],
-            'description' => $validated['description'] ?? null,
-            'thumbnail_url' => $validated['thumbnail_url'] ?? null,
-            'artwork_url' => $validated['artwork_url'] ?? null,
-            'player_background_url' => $validated['player_background_url'] ?? null,
-            'category' => $validated['category'] ?? null,
-            'tags' => $request->resolvedTags(),
-            'is_active' => array_key_exists('is_active', $validated)
-                ? (bool) $validated['is_active']
-                : true,
-        ]);
+        $bundle = $createCoverBundle(
+            $request->resolvedMetadata(),
+            $request->file('thumbnail_file'),
+            $request->file('artwork_file'),
+            $request->file('player_background_file'),
+        );
 
         return (new CoverBundleResource($bundle))->response()->setStatusCode(201);
     }
