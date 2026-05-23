@@ -10,6 +10,17 @@ Authenticated **admin** uploads to DigitalOcean Spaces via a single multipart en
 
 The caller must be a synced Laravel user with **`role === admin`** and **`admin_access_status === approved`** (same gate as other admin write routes).
 
+## Sound catalog create (multipart)
+
+Approved admins **create** sounds with uploads in one shot (no pasted URLs):
+
+| Method | Path | Middleware |
+| --- | --- | --- |
+| `POST` | `/api/admin/sounds` | `firebase.auth`, `admin.approved` |
+| `POST` | `/api/sounds` | same handler |
+
+**`multipart/form-data`:** `name`, `category`, `duration_seconds`, `tags[]` (repeat), `is_active` (`true`/`false`/`1`/`0`), **`audio_file`**, **`thumbnail_file`**. Validates with the **same MIME/size rules** as `POST /api/admin/uploads`. Response: **`SoundResource`** **201**.
+
 ## Request (`multipart/form-data`)
 
 | Field | Type | Description |
@@ -78,7 +89,7 @@ Object keys follow the layout in [`storage-strategy.md`](storage-strategy.md), w
 }
 ```
 
-`url` is always built from **`DO_SPACES_CDN_URL`** (public CDN). The API **does not** update `sounds`, `cover_bundles`, `vibes`, or `users` columns automatically; **Nuxt Admin** (next step) should persist the returned URL in the relevant CRUD form.
+`url` is always built from **`DO_SPACES_CDN_URL`** (public CDN). This endpoint **does not** mutate `sounds`, `cover_bundles`, `vibes`, or `users` columns automatically — callers PATCH the entity afterward (except **`POST /api/admin/sounds` / `POST /api/sounds`**, which create a sound **and** set **`file_url` / `thumbnail_url`** inside Laravel).
 
 ## Errors
 

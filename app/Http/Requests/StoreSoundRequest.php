@@ -19,14 +19,36 @@ class StoreSoundRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'category' => ['required', 'string', 'max:255'],
-            'file_url' => ['required', 'string', 'max:2048'],
-            'thumbnail_url' => ['nullable', 'string', 'max:2048'],
-            'duration' => ['nullable', 'integer', 'min:0'],
-            'duration_seconds' => ['nullable', 'integer', 'min:0'],
-            'tags' => ['nullable', 'array'],
+            'duration_seconds' => ['required', 'integer', 'min:0'],
+            'tags' => ['required', 'array', 'min:1'],
             'tags.*' => ['string', 'max:128'],
             'is_active' => ['sometimes', 'boolean'],
+            'audio_file' => ['required', 'file'],
+            'thumbnail_file' => ['required', 'file'],
+            'file_url' => ['prohibited'],
+            'thumbnail_url' => ['prohibited'],
+            'audio_url' => ['prohibited'],
+            'artwork_url' => ['prohibited'],
+            'player_background_url' => ['prohibited'],
+            'description' => ['prohibited'],
         ];
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if (! $this->has('is_active')) {
+            return;
+        }
+
+        $v = $this->input('is_active');
+        if (is_bool($v)) {
+            return;
+        }
+
+        $parsed = filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        $this->merge([
+            'is_active' => $parsed ?? false,
+        ]);
     }
 
     public function resolvedDuration(): ?int
@@ -36,10 +58,6 @@ class StoreSoundRequest extends FormRequest
 
         if (array_key_exists('duration_seconds', $data) && $data['duration_seconds'] !== null) {
             return (int) $data['duration_seconds'];
-        }
-
-        if (array_key_exists('duration', $data) && $data['duration'] !== null) {
-            return (int) $data['duration'];
         }
 
         return null;
