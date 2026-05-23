@@ -6,6 +6,7 @@ namespace App\Services\Storage;
 
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Validator as ValidatorFacade;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Validator;
 
 final class UploadAssetValidator
@@ -139,6 +140,50 @@ final class UploadAssetValidator
                     ? 'Invalid audio type. Allowed: MP3, OGG, WAV, M4A, AAC.'
                     : 'Invalid image type. Allowed: JPEG, PNG, WebP.',
             );
+        }
+    }
+
+    /** @throws ValidationException */
+    public static function assertValidSoundAudio(UploadedFile $file): void
+    {
+        if (! $file->isValid()) {
+            throw ValidationException::withMessages([
+                'audio_file' => ['The audio upload failed.'],
+            ]);
+        }
+
+        if ($file->getSize() > self::AUDIO_MAX_BYTES) {
+            throw ValidationException::withMessages([
+                'audio_file' => ['Audio must not exceed 25 MB.'],
+            ]);
+        }
+
+        if (self::resolveExtension($file, 'sound', 'audio') === null) {
+            throw ValidationException::withMessages([
+                'audio_file' => ['Invalid audio type. Allowed: MP3, OGG, WAV, M4A, AAC.'],
+            ]);
+        }
+    }
+
+    /** @throws ValidationException */
+    public static function assertValidSoundThumbnail(UploadedFile $file): void
+    {
+        if (! $file->isValid()) {
+            throw ValidationException::withMessages([
+                'thumbnail_file' => ['The thumbnail upload failed.'],
+            ]);
+        }
+
+        if ($file->getSize() > self::IMAGE_MAX_BYTES) {
+            throw ValidationException::withMessages([
+                'thumbnail_file' => ['Image must not exceed 5 MB.'],
+            ]);
+        }
+
+        if (self::resolveExtension($file, 'sound', 'thumbnail') === null) {
+            throw ValidationException::withMessages([
+                'thumbnail_file' => ['Invalid image type. Allowed: JPEG, PNG, WebP.'],
+            ]);
         }
     }
 

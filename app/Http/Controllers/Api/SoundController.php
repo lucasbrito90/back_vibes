@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\Sound\CreateSoundWithUploadedFiles;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreSoundRequest;
 use App\Http\Requests\UpdateSoundRequest;
@@ -9,6 +10,7 @@ use App\Http\Resources\SoundResource;
 use App\Models\Sound;
 use App\Services\Storage\SafeAssetDeletionService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -29,33 +31,32 @@ class SoundController extends Controller
         return new SoundResource($sound);
     }
 
-    public function store(StoreSoundRequest $request): JsonResponse
+    public function store(StoreSoundRequest $request, CreateSoundWithUploadedFiles $createSound): JsonResponse
     {
         $validated = $request->validated();
+        /** @var \Illuminate\Http\UploadedFile|null $audio */
+        $audio = $request->file('audio_file');
+        /** @var \Illuminate\Http\UploadedFile|null $thumbnail */
+        $thumbnail = $request->file('thumbnail_file');
 
-        $fileUrl = trim((string) $validated['file_url']);
-        if ($fileUrl === '') {
+        if (! $audio instanceof UploadedFile || ! $thumbnail instanceof UploadedFile) {
             throw ValidationException::withMessages([
-                'file_url' => ['A file URL is required.'],
+                'audio_file' => ['A valid audio file is required.'],
+                'thumbnail_file' => ['A valid thumbnail image is required.'],
             ]);
         }
 
-        $thumbnailUrl = $validated['thumbnail_url'] ?? null;
-        $thumbnailUrl = is_string($thumbnailUrl) && trim($thumbnailUrl) !== ''
-            ? trim($thumbnailUrl)
-            : null;
-
-        $sound = Sound::query()->create([
+        $metadata = [
             'name' => $validated['name'],
             'category' => $validated['category'],
-            'file_url' => $fileUrl,
-            'thumbnail_url' => $thumbnailUrl,
-            'duration' => $request->resolvedDuration(),
+            'duration_seconds' => $request->resolvedDuration(),
             'tags' => $request->resolvedTags(),
             'is_active' => array_key_exists('is_active', $validated)
                 ? (bool) $validated['is_active']
                 : true,
-        ]);
+        ];
+
+        $sound = $createSound($metadata, $audio, $thumbnail);
 
         return (new SoundResource($sound))->response()->setStatusCode(201);
     }
