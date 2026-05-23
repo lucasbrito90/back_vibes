@@ -51,6 +51,7 @@ WORKDIR /app
 
 COPY --from=vendor --chown=www-data:www-data /app /app
 
+COPY docker/frankenphp/conf.d/zz-uploads.ini /usr/local/etc/php/conf.d/zz-uploads.ini
 COPY docker/frankenphp/Caddyfile /etc/frankenphp/Caddyfile
 COPY docker/frankenphp/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Services\Storage\UploadAssetValidator;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreSoundRequest extends FormRequest
@@ -23,8 +24,8 @@ class StoreSoundRequest extends FormRequest
             'tags' => ['required', 'array', 'min:1'],
             'tags.*' => ['string', 'max:128'],
             'is_active' => ['sometimes', 'boolean'],
-            'audio_file' => ['required', 'file'],
-            'thumbnail_file' => ['required', 'file'],
+            'audio_file' => ['required', 'file', 'max:'.intdiv(UploadAssetValidator::AUDIO_MAX_BYTES, 1024)],
+            'thumbnail_file' => ['required', 'file', 'max:'.intdiv(UploadAssetValidator::IMAGE_MAX_BYTES, 1024)],
             'file_url' => ['prohibited'],
             'thumbnail_url' => ['prohibited'],
             'audio_url' => ['prohibited'],
