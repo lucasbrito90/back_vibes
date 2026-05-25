@@ -26,23 +26,23 @@ class HealthController extends Controller
         try {
             DB::select('select 1');
         } catch (\Throwable) {
-            $dbStatus  = 'failed';
+            $dbStatus = 'failed';
             $httpStatus = 503;
         }
 
         if ($dbStatus !== 'ok') {
             return response()->json([
-                'status'   => 'error',
+                'status' => 'error',
                 'database' => 'failed',
             ], 503);
         }
 
         return response()->json([
-            'status'      => 'ok',
+            'status' => 'ok',
             'environment' => app()->environment(),
-            'app'         => config('app.name'),
-            'timestamp'   => now()->toIso8601String(),
-            'database'    => 'ok',
+            'app' => config('app.name'),
+            'timestamp' => now()->toIso8601String(),
+            'database' => 'ok',
         ], 200);
     }
 }

@@ -18,9 +18,9 @@ final class Schedule extends Model
     protected function casts(): array
     {
         return [
-            'start_time'        => 'datetime',
+            'start_time' => 'datetime',
             'recurrence_config' => 'array',
-            'is_enabled'        => 'boolean',
+            'is_enabled' => 'boolean',
         ];
     }
 

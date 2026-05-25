@@ -6,6 +6,7 @@ use App\Models\Sound;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Storage;
 use Kreait\Firebase\Contract\Auth;
 use Lcobucci\JWT\Token\DataSet;
@@ -14,7 +15,7 @@ use Lcobucci\JWT\UnencryptedToken;
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
-    \Illuminate\Support\Facades\Config::set('filesystems.disks.spaces', [
+    Config::set('filesystems.disks.spaces', [
         'driver' => 's3',
         'key' => 'test',
         'secret' => 'test',
@@ -26,7 +27,7 @@ beforeEach(function (): void {
         'throw' => true,
     ]);
 
-    \Illuminate\Support\Facades\Storage::fake('spaces');
+    Storage::fake('spaces');
 });
 
 function jwtForSoundCatalogUser(User $user): UnencryptedToken

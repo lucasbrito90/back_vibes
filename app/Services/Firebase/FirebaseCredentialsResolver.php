@@ -80,7 +80,6 @@ final class FirebaseCredentialsResolver
      * Public for unit tests — no global env lookups.
      *
      * @param  array<string, mixed>  $firebaseEnvAliases
-     *
      * @return array<string, string>
      */
     public static function credentialsArrayFromDiscreteEnvSnapshot(array $firebaseEnvAliases): array
@@ -134,7 +133,6 @@ final class FirebaseCredentialsResolver
 
     /**
      * @param  array<string, mixed>  $env
-     *
      * @return 'complete'|'none'|'partial'
      */
     public static function classifyDiscreteEnvIntent(array $env): string

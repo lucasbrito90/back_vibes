@@ -17,7 +17,7 @@ final class UserSettings extends Model
     protected function casts(): array
     {
         return [
-            'default_volume'      => 'integer',
+            'default_volume' => 'integer',
             'sleep_timer_default' => 'integer',
         ];
     }
