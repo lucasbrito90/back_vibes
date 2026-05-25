@@ -25,7 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         // When middleware throws before returning (e.g. PostTooLarge), HandleCors never reaches
         // addActualRequestHeaders(); mirror CORS paths so API errors still expose ACAO when applicable.
-        $exceptions->respond(function (SymfonyResponse $response, \Throwable $e, Request $request): SymfonyResponse {
+        $exceptions->respond(function (SymfonyResponse $response, Throwable $e, Request $request): SymfonyResponse {
             foreach (array_filter(config('cors.paths', []), fn (mixed $path): bool => is_string($path)) as $pattern) {
                 $path = $pattern !== '/' ? trim($pattern, '/') : '/';
                 if ($request->fullUrlIs($path) || $request->is($path)) {

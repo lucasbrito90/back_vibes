@@ -10,8 +10,8 @@ use App\Http\Resources\SoundResource;
 use App\Models\Sound;
 use App\Services\Storage\SafeAssetDeletionService;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -34,9 +34,9 @@ class SoundController extends Controller
     public function store(StoreSoundRequest $request, CreateSoundWithUploadedFiles $createSound): JsonResponse
     {
         $validated = $request->validated();
-        /** @var \Illuminate\Http\UploadedFile|null $audio */
+        /** @var UploadedFile|null $audio */
         $audio = $request->file('audio_file');
-        /** @var \Illuminate\Http\UploadedFile|null $thumbnail */
+        /** @var UploadedFile|null $thumbnail */
         $thumbnail = $request->file('thumbnail_file');
 
         if (! $audio instanceof UploadedFile || ! $thumbnail instanceof UploadedFile) {
