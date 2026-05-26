@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Admin\UploadAssetController;
 use App\Http\Controllers\Api\AdminAccessRequestController;
 use App\Http\Controllers\Api\CoverBundleController;
+use App\Http\Controllers\Api\DebugMeController;
 use App\Http\Controllers\Api\FirebaseAuthController;
 use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
@@ -10,6 +11,7 @@ use App\Http\Controllers\Api\PresetVibeController;
 use App\Http\Controllers\Api\SoundController;
 use App\Http\Controllers\Api\VibeController;
 use App\Http\Controllers\Api\VibeSoundController;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Route;
 
 // Public — no authentication required.
@@ -64,3 +66,13 @@ Route::middleware('firebase.auth')->group(function () {
 
 // Smoke route for admin middleware (used by tests; harmless in other envs).
 Route::middleware(['firebase.auth', 'admin.approved'])->get('__admin_gate', fn () => response()->json(['data' => ['ok' => true]]));
+
+if (! App::environment('production')) {
+    /*
+     | Authenticated Laravel user QA snapshot (staging/local/testing only).
+     | Never registered while APP_ENV=production.
+     */
+    Route::middleware(['firebase.auth', 'diagnostics.non_production'])
+        ->get('/debug/me', DebugMeController::class)
+        ->name('api.debug-me');
+}
