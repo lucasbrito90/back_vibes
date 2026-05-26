@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureAdminApproved;
+use App\Http\Middleware\EnsureDiagnosticsEnvironment;
 use App\Http\Middleware\FirebaseAuthenticate;
 use Fruitcake\Cors\CorsService;
 use Illuminate\Foundation\Application;
@@ -20,6 +21,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'firebase.auth' => FirebaseAuthenticate::class,
             'admin.approved' => EnsureAdminApproved::class,
+            'diagnostics.non_production' => EnsureDiagnosticsEnvironment::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
