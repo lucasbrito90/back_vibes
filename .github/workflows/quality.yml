@@ -46,6 +46,11 @@ jobs:
       - name: Prepare application environment
         run: |
           cp .env.example .env
+          {
+            echo 'FIREBASE_PROJECT_ID=ci-test-project'
+            echo 'FIREBASE_CLIENT_EMAIL=firebase-adminsdk@test.iam.gserviceaccount.com'
+            echo 'FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nFAKEBODY\n-----END PRIVATE KEY-----\n"'
+          } >> .env
           php artisan key:generate --ansi
 
       - name: Run tests
