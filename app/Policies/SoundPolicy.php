@@ -24,6 +24,12 @@ class SoundPolicy
         return true;
     }
 
+    /** Filter catalog lists to inactive sounds (approved admins only). */
+    public function viewInactive(User $user): bool
+    {
+        return $user->isAdminApproved();
+    }
+
     public function create(User $user): bool
     {
         return $user->isAdminApproved();
