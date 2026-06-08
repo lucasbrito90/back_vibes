@@ -4,11 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Actions\Sound\CreateSoundWithUploadedFiles;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\IndexSoundRequest;
 use App\Http\Requests\StoreSoundRequest;
 use App\Http\Requests\UpdateSoundRequest;
 use App\Http\Resources\SoundResource;
 use App\Models\Sound;
+use App\Queries\SoundCatalogQuery;
 use App\Services\Storage\SafeAssetDeletionService;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
@@ -19,15 +22,30 @@ use Illuminate\Validation\ValidationException;
 
 class SoundController extends Controller
 {
-    public function index(): AnonymousResourceCollection
-    {
-        $sounds = Sound::orderBy('name')->get();
+    use AuthorizesRequests;
 
-        return SoundResource::collection($sounds);
+    public function index(IndexSoundRequest $request): AnonymousResourceCollection
+    {
+        $this->authorize('viewAny', Sound::class);
+
+        $catalog = new SoundCatalogQuery($request, $request->user());
+        $query = $catalog->build();
+
+        if ($catalog->wantsPagination()) {
+            $paginator = $query->paginate($catalog->perPage());
+
+            return SoundResource::collection($paginator)->additional([
+                'available_categories' => $catalog->availableCategories(),
+            ]);
+        }
+
+        return SoundResource::collection($query->get());
     }
 
     public function show(Sound $sound): SoundResource
     {
+        $this->authorize('view', $sound);
+
         return new SoundResource($sound);
     }
 
