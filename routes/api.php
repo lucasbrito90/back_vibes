@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\FirebaseAuthController;
 use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PresetVibeController;
+use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\SoundController;
 use App\Http\Controllers\Api\VibeController;
 use App\Http\Controllers\Api\VibeSoundController;
@@ -24,6 +25,7 @@ Route::middleware('firebase.auth')->group(function () {
     Route::post('admin/access-requests', [AdminAccessRequestController::class, 'store']);
 
     Route::apiResource('vibes', VibeController::class);
+    Route::apiResource('schedules', ScheduleController::class);
 
     Route::get('sounds', [SoundController::class, 'index']);
     Route::get('sounds/{sound}', [SoundController::class, 'show']);
