@@ -8,12 +8,21 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['user_id', 'vibe_id', 'name', 'start_time', 'recurrence_type', 'recurrence_config', 'is_enabled'])]
+#[Fillable([
+    'user_id',
+    'vibe_id',
+    'name',
+    'timezone',
+    'start_time',
+    'recurrence_type',
+    'recurrence_config',
+    'is_enabled',
+    'next_run_at',
+    'last_run_at',
+])]
 final class Schedule extends Model
 {
     use HasFactory;
-
-    const UPDATED_AT = null;
 
     protected function casts(): array
     {
@@ -21,6 +30,8 @@ final class Schedule extends Model
             'start_time' => 'datetime',
             'recurrence_config' => 'array',
             'is_enabled' => 'boolean',
+            'next_run_at' => 'datetime',
+            'last_run_at' => 'datetime',
         ];
     }
 
