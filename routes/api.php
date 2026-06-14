@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PresetVibeController;
 use App\Http\Controllers\Api\ScheduleController;
+use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
 use App\Http\Controllers\Api\VibeController;
 use App\Http\Controllers\Api\VibeSoundController;
@@ -26,6 +27,10 @@ Route::middleware('firebase.auth')->group(function () {
 
     Route::apiResource('vibes', VibeController::class);
     Route::apiResource('schedules', ScheduleController::class);
+
+    Route::get('schedules/{schedule}/executions', [ScheduleExecutionController::class, 'index']);
+    Route::post('schedules/{schedule}/executions/{occurrence_key}/ack', [ScheduleExecutionController::class, 'acknowledge'])
+        ->where('occurrence_key', '[^/]+');
 
     Route::get('sounds', [SoundController::class, 'index']);
     Route::get('sounds/{sound}', [SoundController::class, 'show']);
