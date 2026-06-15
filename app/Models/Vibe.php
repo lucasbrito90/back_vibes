@@ -46,7 +46,7 @@ final class Vibe extends Model
 
     public function deviceActions(): HasMany
     {
-        return $this->hasMany(VibeDeviceAction::class);
+        return $this->hasMany(VibeDeviceAction::class)->orderBy('sort_order');
     }
 
     public function schedules(): HasMany
