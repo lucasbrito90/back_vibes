@@ -4,10 +4,12 @@ use App\Http\Controllers\Api\Admin\UploadAssetController;
 use App\Http\Controllers\Api\AdminAccessRequestController;
 use App\Http\Controllers\Api\CoverBundleController;
 use App\Http\Controllers\Api\DebugMeController;
+use App\Http\Controllers\Api\DeviceController;
 use App\Http\Controllers\Api\FirebaseAuthController;
 use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PresetVibeController;
+use App\Http\Controllers\Api\ProviderConnectionController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
@@ -27,6 +29,8 @@ Route::middleware('firebase.auth')->group(function () {
 
     Route::apiResource('vibes', VibeController::class);
     Route::apiResource('schedules', ScheduleController::class);
+    Route::apiResource('provider-connections', ProviderConnectionController::class);
+    Route::apiResource('devices', DeviceController::class);
 
     Route::get('schedules/{schedule}/executions', [ScheduleExecutionController::class, 'index']);
     Route::post('schedules/{schedule}/executions/{occurrence_key}/ack', [ScheduleExecutionController::class, 'acknowledge'])
