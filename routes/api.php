@@ -30,6 +30,8 @@ Route::middleware('firebase.auth')->group(function () {
     Route::apiResource('vibes', VibeController::class);
     Route::apiResource('schedules', ScheduleController::class);
     Route::apiResource('provider-connections', ProviderConnectionController::class);
+    Route::post('provider-connections/{providerConnection}/sync', [ProviderConnectionController::class, 'sync'])
+        ->name('provider-connections.sync');
     Route::apiResource('devices', DeviceController::class);
 
     Route::get('schedules/{schedule}/executions', [ScheduleExecutionController::class, 'index']);
