@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
 use App\Http\Controllers\Api\VibeController;
+use App\Http\Controllers\Api\VibeDeviceActionController;
 use App\Http\Controllers\Api\VibeSoundController;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Route;
@@ -74,6 +75,13 @@ Route::middleware('firebase.auth')->group(function () {
         Route::post('sounds', [VibeSoundController::class, 'store']);
         Route::patch('sounds/{sound}', [VibeSoundController::class, 'update']);
         Route::delete('sounds/{sound}', [VibeSoundController::class, 'destroy']);
+
+        Route::get('device-actions', [VibeDeviceActionController::class, 'index']);
+        Route::post('device-actions', [VibeDeviceActionController::class, 'store']);
+        // reorder MUST be registered before the {action} wildcard routes.
+        Route::post('device-actions/reorder', [VibeDeviceActionController::class, 'reorder']);
+        Route::patch('device-actions/{action}', [VibeDeviceActionController::class, 'update']);
+        Route::delete('device-actions/{action}', [VibeDeviceActionController::class, 'destroy']);
     });
 });
 
