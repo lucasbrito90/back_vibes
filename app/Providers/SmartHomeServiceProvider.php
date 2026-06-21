@@ -7,6 +7,7 @@ namespace App\Providers;
 use App\SmartHome\Adapters\HomeAssistantAdapter;
 use App\SmartHome\ProviderAdapterResolver;
 use App\SmartHome\Services\ProviderDeviceSyncService;
+use App\SmartHome\Services\VibeSmartHomeDispatchService;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -20,5 +21,6 @@ final class SmartHomeServiceProvider extends ServiceProvider
         $this->app->singleton(HomeAssistantAdapter::class);
         $this->app->singleton(ProviderAdapterResolver::class);
         $this->app->singleton(ProviderDeviceSyncService::class);
+        $this->app->singleton(VibeSmartHomeDispatchService::class);
     }
 }

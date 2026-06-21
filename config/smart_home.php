@@ -27,4 +27,32 @@ return [
 
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Queue Configuration
+    |--------------------------------------------------------------------------
+    |
+    | SmartHomeActionJob runs on the "smart-home" named queue so that device
+    | action execution can be monitored and throttled independently from the
+    | default Laravel queue.
+    |
+    | The existing queue worker (DO App Platform) processes all named queues
+    | via `php artisan queue:work --queue=smart-home,default` — no new infra
+    | is required (see ADR-016).
+    |
+    | job_timeout   — seconds before the worker kills a stalled job (matches
+    |                 SmartHomeActionJob::$timeout = 30).
+    | job_tries     — max attempts before moving the job to failed_jobs
+    |                 (matches SmartHomeActionJob::$tries = 3).
+    | queue_name    — named queue; configure the worker with
+    |                 --queue=smart-home,default to ensure both queues drain.
+    |
+    */
+
+    'queue' => [
+        'name' => env('SMART_HOME_QUEUE_NAME', 'smart-home'),
+        'job_timeout' => (int) env('SMART_HOME_JOB_TIMEOUT', 30),
+        'job_tries' => (int) env('SMART_HOME_JOB_TRIES', 3),
+    ],
+
 ];
