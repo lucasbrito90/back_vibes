@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
 use App\Http\Controllers\Api\VibeController;
 use App\Http\Controllers\Api\VibeDeviceActionController;
+use App\Http\Controllers\Api\VibeSmartHomeDispatchController;
 use App\Http\Controllers\Api\VibeSoundController;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Route;
@@ -75,6 +76,8 @@ Route::middleware('firebase.auth')->group(function () {
         Route::post('sounds', [VibeSoundController::class, 'store']);
         Route::patch('sounds/{sound}', [VibeSoundController::class, 'update']);
         Route::delete('sounds/{sound}', [VibeSoundController::class, 'destroy']);
+
+        Route::post('smart-home/dispatch', VibeSmartHomeDispatchController::class);
 
         Route::get('device-actions', [VibeDeviceActionController::class, 'index']);
         Route::post('device-actions', [VibeDeviceActionController::class, 'store']);
