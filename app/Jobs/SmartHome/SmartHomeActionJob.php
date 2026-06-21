@@ -5,24 +5,35 @@ declare(strict_types=1);
 namespace App\Jobs\SmartHome;
 
 use App\Models\VibeDeviceAction;
+use App\SmartHome\DTOs\ActionResult;
+use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
+use App\SmartHome\ProviderAdapterResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
- * Queued job that will execute a single Smart Home device action.
+ * Queued job that executes a single Smart Home device action against its
+ * provider (Phase 9 — real execution, ADR-016 / ADR-013).
  *
- * Phase 8 (stub): loads the action and logs intent only.
- * Phase 9 will resolve the provider adapter and call executeAction().
+ * Execution path:
+ * - Loads the VibeDeviceAction with device + device.providerConnection.
+ * - Resolves the provider adapter via ProviderAdapterResolver.
+ * - Calls adapter->executeAction(connection, provider_device_id, action_type, parameters).
  *
- * Contract:
- * - Never calls ProviderAdapterResolver or HomeAssistantAdapter.
- * - Never makes HTTP requests.
- * - Handles a missing/soft-deleted action gracefully (no exception).
- * - Queue: smart-home | Timeout: 30s | Tries: 3
+ * Failure policy (MVP):
+ * - A failed ActionResult (provider HTTP error / timeout) is a COMPLETED failure:
+ *   it is logged and the job finishes successfully — it is NOT retried.
+ * - An unsupported action is logged and the job finishes — retrying cannot help.
+ * - Any unexpected Throwable is caught and logged so it never breaks the audio
+ *   flow or floods the queue with retries.
+ * - Provider credentials (access_token / encrypted_credentials) are NEVER logged.
+ *
+ * Queue: smart-home | Timeout: 30s | Tries: 3
  */
 final class SmartHomeActionJob implements ShouldQueue
 {
@@ -41,7 +52,7 @@ final class SmartHomeActionJob implements ShouldQueue
         $this->onQueue('smart-home');
     }
 
-    public function handle(): void
+    public function handle(ProviderAdapterResolver $resolver): void
     {
         $action = VibeDeviceAction::with(['device', 'device.providerConnection'])
             ->find($this->vibeDeviceActionId);
@@ -54,14 +65,88 @@ final class SmartHomeActionJob implements ShouldQueue
             return;
         }
 
-        Log::info('SmartHomeActionJob: would execute action (Phase 8 stub — no provider call).', [
+        $device = $action->device;
+
+        if ($device === null) {
+            Log::warning('SmartHomeActionJob: device missing for action — skipping.', [
+                'vibe_device_action_id' => $action->id,
+                'vibe_id' => $action->vibe_id,
+                'device_id' => $action->device_id,
+            ]);
+
+            return;
+        }
+
+        $connection = $device->providerConnection;
+
+        if ($connection === null) {
+            Log::warning('SmartHomeActionJob: provider connection missing for device — skipping.', [
+                'vibe_device_action_id' => $action->id,
+                'vibe_id' => $action->vibe_id,
+                'device_id' => $device->id,
+            ]);
+
+            return;
+        }
+
+        $context = [
             'vibe_device_action_id' => $action->id,
             'vibe_id' => $action->vibe_id,
-            'device_id' => $action->device_id,
-            'device_name' => $action->device?->name,
+            'device_id' => $device->id,
+            'provider_connection_id' => $connection->id,
+            'provider' => $connection->provider,
+            'provider_device_id' => $device->provider_device_id,
             'action_type' => $action->action_type,
-            'delay_seconds' => $action->delay_seconds,
-            'sort_order' => $action->sort_order,
-        ]);
+        ];
+
+        try {
+            $adapter = $resolver->forProvider($connection->provider);
+
+            $result = $adapter->executeAction(
+                $connection,
+                $device->provider_device_id,
+                $action->action_type,
+                $action->parameters ?? [],
+            );
+
+            $this->logResult($context, $result);
+        } catch (UnsupportedSmartHomeActionException $e) {
+            Log::warning('SmartHomeActionJob: unsupported action — skipping.', [
+                ...$context,
+                'success' => false,
+                'status_code' => null,
+                'error_message' => $e->getMessage(),
+            ]);
+        } catch (Throwable $e) {
+            // Catch-all: provider/infrastructure errors must never break the
+            // audio flow. Logged and completed gracefully (no retry storm).
+            Log::error('SmartHomeActionJob: unexpected error executing action.', [
+                ...$context,
+                'success' => false,
+                'status_code' => null,
+                'error_message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function logResult(array $context, ActionResult $result): void
+    {
+        $context = [
+            ...$context,
+            'success' => $result->success,
+            'status_code' => $result->status_code,
+            'error_message' => $result->error_message,
+        ];
+
+        if ($result->success) {
+            Log::info('SmartHomeActionJob: action executed successfully.', $context);
+
+            return;
+        }
+
+        Log::warning('SmartHomeActionJob: action execution failed (provider returned failure).', $context);
     }
 }

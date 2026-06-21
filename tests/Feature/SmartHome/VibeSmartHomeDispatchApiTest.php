@@ -229,7 +229,7 @@ it('returns dispatched 0 when vibe has no device actions', function () {
 // Safety guarantees — no HA / no HTTP / no adapter
 // ─────────────────────────────────────────────────────────────────────────────
 
-it('does not make any HTTP request to Home Assistant or any provider', function () {
+it('does not make any synchronous HTTP request to Home Assistant during dispatch', function () {
     Http::fake();
     Bus::fake();
 
@@ -246,11 +246,14 @@ it('does not make any HTTP request to Home Assistant or any provider', function 
         shDispatchHeaders(),
     )->assertOk();
 
+    // Phase 9: HA execution happens inside the queued SmartHomeActionJob, never
+    // inline in the play/dispatch request. The endpoint must not hit HA itself.
     Http::assertNothingSent();
 });
 
-it('does not execute a provider adapter during dispatch', function () {
+it('only queues the job and does not execute the provider adapter inline', function () {
     Bus::fake();
+    Http::fake();
 
     $user = shDispatchUser();
     $vibe = shDispatchVibe($user);
@@ -259,15 +262,14 @@ it('does not execute a provider adapter during dispatch', function () {
 
     shDispatchAuth($user);
 
-    // If an adapter were resolved and called, it would attempt HTTP calls.
-    // Http::fake() + assertNothingSent() verifies no adapter HTTP occurred.
-    Http::fake();
-
     $this->postJson(
         "/api/vibes/{$vibe->id}/smart-home/dispatch",
         [],
         shDispatchHeaders(),
     )->assertOk();
 
+    // Bus::fake() keeps the job on the queue (never run inline), so no adapter
+    // HTTP can occur during the request — the play path stays fire-and-forget.
+    Bus::assertDispatched(SmartHomeActionJob::class);
     Http::assertNothingSent();
 });
