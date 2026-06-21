@@ -9,6 +9,8 @@ use App\Http\Requests\StoreProviderConnectionRequest;
 use App\Http\Requests\UpdateProviderConnectionRequest;
 use App\Http\Resources\ProviderConnectionResource;
 use App\Models\ProviderConnection;
+use App\SmartHome\Exceptions\ProviderConnectionException;
+use App\SmartHome\Services\ProviderDeviceSyncService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -79,5 +81,28 @@ class ProviderConnectionController extends Controller
         $providerConnection->delete();
 
         return response()->json(null, 204);
+    }
+
+    public function sync(Request $request, ProviderConnection $providerConnection, ProviderDeviceSyncService $syncService): JsonResponse
+    {
+        $this->authorize('update', $providerConnection);
+
+        try {
+            $result = $syncService->sync($providerConnection);
+        } catch (ProviderConnectionException $e) {
+            return response()->json([
+                'message' => 'Provider is unreachable. All devices for this connection have been marked unknown.',
+                'provider' => $providerConnection->provider,
+            ], 502);
+        }
+
+        return response()->json(['data' => [
+            'provider_connection_id' => $result->provider_connection_id,
+            'synced' => $result->synced,
+            'created' => $result->created,
+            'updated' => $result->updated,
+            'offline' => $result->offline,
+            'status' => $result->status,
+        ]]);
     }
 }
