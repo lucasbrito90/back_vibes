@@ -7,7 +7,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['schedule_id', 'executed_at', 'status', 'log'])]
+#[Fillable([
+    'schedule_id',
+    'occurrence_key',
+    'scheduled_for',
+    'executed_at',
+    'status',
+    'log',
+])]
 final class ScheduleExecution extends Model
 {
     use HasFactory;
@@ -17,6 +24,7 @@ final class ScheduleExecution extends Model
     protected function casts(): array
     {
         return [
+            'scheduled_for' => 'datetime',
             'executed_at' => 'datetime',
         ];
     }

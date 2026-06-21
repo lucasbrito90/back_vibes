@@ -3,17 +3,21 @@
 
 # Laravel Boost Guidelines
 
-The Laravel Boost guidelines are specifically curated by Laravel maintainers for this application. These guidelines should be followed closely to ensure the best experience when building Laravel applications.
+The Laravel Boost guidelines are specifically curated by Laravel maintainers for this application. These guidelines should be followed closely to ensure the best experience for building Laravel applications.
 
 ## Foundational Context
 
-This application is a Laravel REST API backend and its main Laravel ecosystems package & versions are below. You are an expert with them all. Ensure you abide by these specific packages & versions.
+This application is a **Laravel REST API backend** and its main Laravel ecosystems package & versions are below. You are an expert with them all. Ensure you abide by these specific packages & versions.
 
 - php - 8.4
 - laravel/framework (LARAVEL) - v13
 - laravel/boost (BOOST) - v2
 - kreait/laravel-firebase (FIREBASE) - ^7.1
 - laravel/tinker - ^3.0
+- laravel/prompts (PROMPTS) - v0
+- laravel/mcp (MCP) - v0
+- laravel/pail (PAIL) - v1
+- laravel/pint (PINT) - v1
 - pestphp/pest (PEST) - v4
 - phpunit/phpunit (PHPUNIT) - v12
 - tailwindcss (TAILWINDCSS) - v4
@@ -25,9 +29,11 @@ This application is a Laravel REST API backend and its main Laravel ecosystems p
 This project has domain-specific skills available in `**/skills/**`. You MUST activate the relevant skill whenever you work in that domain—don't wait until you're stuck.
 
 **Active skills** (configured in `boost.json`):
+
 - `laravel-best-practices`
 - `pest-testing`
 - `tailwindcss-development`
+- `deploying-laravel-cloud`
 
 ## Conventions
 
@@ -44,8 +50,8 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 - Stick to existing directory structure; don't create new base folders without approval.
 - Do not change the application's dependencies without approval.
 - **API Structure**: Controllers are namespaced under `App\Http\Controllers\Api\` with RESTful routes defined in `routes/api.php`.
-- **Authorization**: Uses Laravel Policies (in `app/Policies/`) with the `#[Authorize]` attribute on controller methods (e.g., `#[Authorize('viewAny', Vibe::class)]`). Policies include comments for scoping guidance (e.g., controllers must scope queries by `auth()->id()`).
-- **Authentication**: Firebase-based auth via `kreait/laravel-firebase`. The `FirebaseAuthenticate` middleware validates tokens and logs in users via the `User` model with `firebase_uid` field.
+- **Authorization**: Uses Laravel Policies (in `app/Policies/`) with the `#[Authorize]` attribute on controller methods (e.g., `#[Authorize('viewAny', Vibe::class)]`). Policies include comments for scoping guidance (e.g., controllers must scope queries by `auth()->id()`). **`SoundPolicy`** documents catalog rules (`view`/`viewAny` for any authenticated user; `create`/`update`/`delete` require `User::isAdminApproved()`); **`SoundController`** write routes are enforced today via **`firebase.auth`** + **`admin.approved`** middleware (policy wiring optional follow-up).
+- **Authentication**: Firebase-based auth via `kreait/laravel-firebase`. `VerifyFirebaseIdToken` validates ID tokens. `POST /api/auth/sync` upserts local users (**never** behind `admin.approved`). **`POST /api/admin/access-requests`** (Firebase-authenticated) creates a pending request; **`AdminAccessRequestedMail`** is **queued** (`ShouldQueue` + `Mail::queue()`). Process with **`QUEUE_CONNECTION=database`** (see `.env.example`) and **`php artisan queue:work --tries=3`** so `jobs` drains and the reviewer receives signed approve/reject links (`GET /admin/access-requests/{id}/approve|reject`). Middleware **`admin.approved`** requires `User::isAdminApproved()` (`role === admin` and `admin_access_status === approved`). **Sound catalog**: `GET /api/sounds` and `GET /api/sounds/{sound}` require **`firebase.auth`** only (mobile + admin listing). **Catalog creates**: **`POST /api/admin/sounds`** or **`POST /api/sounds`** (same handler) accept **`multipart/form-data`** — `name`, `category`, `duration_seconds`, `tags[]`, `is_active`, **`audio_file`**, **`thumbnail_file`** — Laravel uploads to Spaces and persists **`file_url`** / **`thumbnail_url`** (**`audio_url`** on **`SoundResource`** remains a read-only alias of **`file_url`**). URL-only catalog creates (**`file_url`** in JSON) are rejected. Existing assets can still use **`POST /api/admin/uploads`** once a sound exists. **`PATCH`/`PUT`/`DELETE`** on **`/api/sounds/{sound}`** require **`firebase.auth`** + **`admin.approved`**. **Cover bundles** (`docs/cover-bundles.md`): same split — **`GET /api/cover-bundles`** and **`GET /api/cover-bundles/{cover_bundle}`** use **`firebase.auth`** only (default list **`is_active`**, **`include_inactive=1`** only for approved admins); writes need **`firebase.auth`** + **`admin.approved`**. **`CoverBundlePolicy`** mirrors **`SoundPolicy`**. **Preset vibes** (`docs/preset-vibes.md`): **`GET /api/preset-vibes`** and **`GET /api/preset-vibes/{preset_vibe}`** use **`firebase.auth`** only; **`POST /api/preset-vibes/{preset_vibe}/import`** uses **`firebase.auth`** only (copies into user vibes); writes + sync require **`firebase.auth`** + **`admin.approved`**. **Vibe sound attachments** under `/api/vibes/{vibe}/sounds` stay **`firebase.auth`** only so the mobile app can compose vibes. Reviewer inbox: `ADMIN_ACCESS_REVIEW_EMAIL` / `config('admin_access.review_email')`.
 
 ## Frontend Bundling
 
@@ -115,6 +121,13 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 # Deployment
 
 - Laravel can be deployed using [Laravel Cloud](https://cloud.laravel.com/), which is the fastest way to deploy and scale production Laravel applications.
+
+=== tests rules ===
+
+# Test Enforcement
+
+- Every change must be programmatically tested. Write a new test or update an existing test, then run the affected tests to make sure they pass.
+- Run the minimum number of tests needed to ensure code quality and speed. Use `php artisan test --compact` with a specific filename or filter.
 
 === laravel/core rules ===
 

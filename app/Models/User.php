@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'firebase_uid', 'timezone'])]
+#[Fillable(['name', 'email', 'firebase_uid', 'timezone', 'avatar_url', 'role', 'admin_access_status'])]
 final class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -26,6 +26,11 @@ final class User extends Authenticatable
         return $this->hasMany(Device::class);
     }
 
+    public function providerConnections(): HasMany
+    {
+        return $this->hasMany(ProviderConnection::class);
+    }
+
     public function schedules(): HasMany
     {
         return $this->hasMany(Schedule::class);
@@ -34,5 +39,15 @@ final class User extends Authenticatable
     public function settings(): HasOne
     {
         return $this->hasOne(UserSettings::class);
+    }
+
+    public function adminAccessRequests(): HasMany
+    {
+        return $this->hasMany(AdminAccessRequest::class);
+    }
+
+    public function isAdminApproved(): bool
+    {
+        return $this->role === 'admin' && $this->admin_access_status === 'approved';
     }
 }

@@ -1,0 +1,60 @@
+name: Quality
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - staging
+      - main
+  push:
+    branches:
+      - develop
+      - staging
+      - main
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  laravel:
+    name: Pest + Pint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_sqlite, xml, ctype, fileinfo, openssl, tokenizer
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            composer-${{ runner.os }}-
+
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare application environment
+        run: |
+          cp .env.example .env
+          {
+            echo 'FIREBASE_PROJECT_ID=ci-test-project'
+            echo 'FIREBASE_CLIENT_EMAIL=firebase-adminsdk@test.iam.gserviceaccount.com'
+            echo 'FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nFAKEBODY\n-----END PRIVATE KEY-----\n"'
+          } >> .env
+          php artisan key:generate --ansi
+
+      - name: Run tests
+        run: composer test
+
+      - name: Run Pint (dry-run)
+        run: ./vendor/bin/pint --test

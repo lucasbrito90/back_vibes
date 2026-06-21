@@ -14,9 +14,9 @@ class UpdateVibeRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name'        => ['sometimes', 'string', 'max:255'],
+            'name' => ['sometimes', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
-            'is_active'   => ['sometimes', 'boolean'],
+            'is_active' => ['sometimes', 'boolean'],
         ];
     }
 }
