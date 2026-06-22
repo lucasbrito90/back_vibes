@@ -31,6 +31,11 @@ final class User extends Authenticatable
         return $this->hasMany(ProviderConnection::class);
     }
 
+    public function pushTokens(): HasMany
+    {
+        return $this->hasMany(PushToken::class);
+    }
+
     public function schedules(): HasMany
     {
         return $this->hasMany(Schedule::class);
