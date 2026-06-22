@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PresetVibeController;
 use App\Http\Controllers\Api\ProviderConnectionController;
+use App\Http\Controllers\Api\PushTokenController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
@@ -70,6 +71,12 @@ Route::middleware('firebase.auth')->group(function () {
 
         Route::post('admin/uploads', [UploadAssetController::class, 'store']);
     });
+
+    // Push token registration, rotation, and deactivation.
+    // refresh MUST be registered before the {pushToken} wildcard to avoid route conflict.
+    Route::post('push-tokens/refresh', [PushTokenController::class, 'refresh']);
+    Route::post('push-tokens', [PushTokenController::class, 'store']);
+    Route::delete('push-tokens/{pushToken}', [PushTokenController::class, 'destroy']);
 
     Route::prefix('vibes/{vibe}')->group(function () {
         Route::get('sounds', [VibeSoundController::class, 'index']);
