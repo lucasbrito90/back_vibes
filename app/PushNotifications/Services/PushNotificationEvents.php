@@ -9,6 +9,10 @@ use App\Models\ScheduleExecution;
 use App\Models\User;
 use App\Models\VibeDeviceAction;
 use App\PushNotifications\DTOs\NotificationPayload;
+use App\PushNotifications\Notifications\AccountSecurityNoticeNotification;
+use App\PushNotifications\Notifications\ScheduleExecutionFailedNotification;
+use App\PushNotifications\Notifications\SmartHomeActionFailedNotification;
+use App\PushNotifications\Notifications\SmartHomeProviderUnreachableNotification;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -22,13 +26,16 @@ use Throwable;
  * domains and centralises notification content + event taxonomy.
  *
  * Responsibilities (orchestration only):
- *   Domain event → NotificationPayload → PushNotificationService::sendToUser()
+ *   Domain event → NotificationPayload (via builder) → PushNotificationService::sendToUser()
  *
  * Boundaries:
  * - No HTTP, no queue logic, no FCM knowledge.
  * - No Scheduler or Smart Home domain logic.
  * - Never throws to the caller — a push failure must never break a domain flow.
  * - Never logs secrets, tokens, credentials, or raw payloads.
+ *
+ * Phase 8.5: payload assembly is delegated to dedicated builder classes inside
+ * App\PushNotifications\Notifications\. This class only orchestrates.
  *
  * References: ADR-017, ADR-019, ADR-021, spec.md §6 / §8 / §9.
  */
@@ -43,22 +50,9 @@ final class PushNotificationEvents
      */
     public function notifyScheduleExecutionFailed(User $user, ScheduleExecution $execution): void
     {
-        $data = ['type' => 'schedule_execution_failed'];
-
-        if ($execution->id !== null) {
-            $data['schedule_execution_id'] = (string) $execution->id;
-        }
-        if ($execution->schedule_id !== null) {
-            $data['schedule_id'] = (string) $execution->schedule_id;
-        }
-
         $this->send(
             $user,
-            new NotificationPayload(
-                title: 'Schedule failed',
-                body: 'One of your scheduled executions failed.',
-                data: $data,
-            ),
+            ScheduleExecutionFailedNotification::build($execution),
             notificationType: 'schedule_execution_failed',
             context: ['schedule_id' => $execution->schedule_id],
         );
@@ -69,20 +63,9 @@ final class PushNotificationEvents
      */
     public function notifySmartHomeActionFailed(User $user, VibeDeviceAction $action): void
     {
-        $data = [
-            'type' => 'smart_home_action_failed',
-            'device_id' => (string) $action->device_id,
-            'vibe_id' => (string) $action->vibe_id,
-            'action_type' => (string) $action->action_type,
-        ];
-
         $this->send(
             $user,
-            new NotificationPayload(
-                title: 'Device action failed',
-                body: 'A Smart Home action could not be completed.',
-                data: $data,
-            ),
+            SmartHomeActionFailedNotification::build($action),
             notificationType: 'smart_home_action_failed',
             context: [
                 'device_id' => $action->device_id,
@@ -96,19 +79,9 @@ final class PushNotificationEvents
      */
     public function notifySmartHomeProviderUnreachable(User $user, ProviderConnection $connection): void
     {
-        $data = [
-            'type' => 'smart_home_provider_unreachable',
-            'provider_connection_id' => (string) $connection->id,
-            'provider' => (string) $connection->provider,
-        ];
-
         $this->send(
             $user,
-            new NotificationPayload(
-                title: 'Smart Home unavailable',
-                body: 'Your Smart Home provider is currently unreachable.',
-                data: $data,
-            ),
+            SmartHomeProviderUnreachableNotification::build($connection),
             notificationType: 'smart_home_provider_unreachable',
             context: [
                 'provider_connection_id' => $connection->id,
@@ -124,11 +97,7 @@ final class PushNotificationEvents
     {
         $this->send(
             $user,
-            new NotificationPayload(
-                title: $title,
-                body: $body,
-                data: ['type' => 'account_security_notice'],
-            ),
+            AccountSecurityNoticeNotification::build($title, $body),
             notificationType: 'account_security_notice',
             context: [],
         );
