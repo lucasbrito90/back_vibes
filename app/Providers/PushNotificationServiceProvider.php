@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\PushNotifications\Contracts\PushProviderResolver as PushProviderResolverContract;
 use App\PushNotifications\Providers\FcmPushProvider;
 use App\PushNotifications\Providers\NoopPushProvider;
 use App\PushNotifications\PushProviderResolver;
@@ -41,5 +42,8 @@ final class PushNotificationServiceProvider extends ServiceProvider
         $this->app->singleton(NoopPushProvider::class);
 
         $this->app->singleton(PushProviderResolver::class);
+
+        // Bind the interface so the job and other callers can type-hint the contract.
+        $this->app->alias(PushProviderResolver::class, PushProviderResolverContract::class);
     }
 }

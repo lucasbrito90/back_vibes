@@ -7,6 +7,7 @@ namespace App\PushNotifications\Services;
 use App\Models\PushToken;
 use App\Models\User;
 use App\PushNotifications\PushProvider;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Manages FCM device token lifecycle: register (upsert), refresh, and deactivate.
@@ -80,6 +81,30 @@ final class PushTokenService
         $pushToken->is_active = false;
         $pushToken->revoked_at = now();
         $pushToken->save();
+    }
+
+    /**
+     * Deactivate a token that a push provider reported as invalid or unregistered.
+     *
+     * Called from PushNotificationJob when PushResult.errorCode is UNREGISTERED
+     * or NOT_FOUND. The user parameter is omitted intentionally — the job has
+     * already loaded the token and knows it belongs to the target user.
+     *
+     * Full token is never logged — uses tokenPreview() only (ADR-021).
+     */
+    public function deactivateInvalidToken(PushToken $token, string $reason): void
+    {
+        $token->is_active = false;
+        $token->revoked_at = now();
+        $token->save();
+
+        Log::info('PushTokenService: token deactivated due to provider error.', [
+            'push_token_id' => $token->id,
+            'token_preview' => $token->tokenPreview(),
+            'platform' => $token->platform,
+            'provider' => $token->provider,
+            'reason' => $reason,
+        ]);
     }
 
     /**

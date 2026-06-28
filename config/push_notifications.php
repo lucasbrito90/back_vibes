@@ -61,4 +61,27 @@ return [
 
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Queue configuration
+    |--------------------------------------------------------------------------
+    |
+    | PushNotificationJob runs on the "push" named queue so that push delivery
+    | can be monitored and throttled independently from the default queue.
+    |
+    | Worker command (add to existing worker invocation):
+    |   php artisan queue:work --queue=push,smart-home,default
+    |
+    | job_timeout — seconds before the worker kills a stalled job.
+    | job_tries   — max attempts before moving the job to failed_jobs.
+    | queue_name  — named queue for the push job.
+    |
+    */
+
+    'queue' => [
+        'name' => env('PUSH_NOTIFICATIONS_QUEUE', 'push'),
+        'tries' => (int) env('PUSH_NOTIFICATIONS_JOB_TRIES', 3),
+        'timeout' => (int) env('PUSH_NOTIFICATIONS_JOB_TIMEOUT', 30),
+    ],
+
 ];
