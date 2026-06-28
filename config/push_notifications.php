@@ -11,9 +11,14 @@ return [
     | Active push provider
     |--------------------------------------------------------------------------
     |
-    | The transport used to deliver push notifications. MVP supports `fcm` only.
+    | The transport used to deliver push notifications. MVP supports:
+    |   - 'fcm'  → FcmPushProvider  (production transport via FCM HTTP v1)
+    |   - 'noop' → NoopPushProvider (tests / local dev without Firebase credentials)
+    |
     | Future providers (apns, webpush) are resolved by PushProviderResolver.
-    | Unsupported values fail explicitly at resolve time (InvalidArgumentException).
+    | Unsupported values fail explicitly at resolve time (InvalidArgumentException) —
+    | there is no silent fallback. NoopPushProvider must never be used in production
+    | unless explicitly configured.
     |
     */
 

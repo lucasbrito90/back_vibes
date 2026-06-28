@@ -38,6 +38,8 @@ use Throwable;
  */
 final class FcmPushProvider implements PushProvider
 {
+    private const PROVIDER = 'fcm';
+
     private const TOKEN_URI = 'https://oauth2.googleapis.com/token';
 
     private const SEND_ENDPOINT = 'https://fcm.googleapis.com/v1/projects/%s/messages:send';
@@ -81,9 +83,11 @@ final class FcmPushProvider implements PushProvider
             ]);
 
             return PushResult::failure(
+                provider: self::PROVIDER,
                 statusCode: null,
                 errorCode: 'network_error',
                 errorMessage: 'FCM request did not complete (connection/timeout).',
+                tokenPreview: $token->tokenPreview(),
             );
         }
 
@@ -91,8 +95,10 @@ final class FcmPushProvider implements PushProvider
             $messageId = $response->json('name');
 
             return PushResult::success(
+                provider: self::PROVIDER,
                 statusCode: $response->status(),
                 messageId: is_string($messageId) ? $messageId : null,
+                tokenPreview: $token->tokenPreview(),
             );
         }
 
@@ -264,9 +270,11 @@ final class FcmPushProvider implements PushProvider
         ]);
 
         return PushResult::failure(
+            provider: self::PROVIDER,
             statusCode: $statusCode,
             errorCode: $errorCode,
             errorMessage: $errorMessage,
+            tokenPreview: $token->tokenPreview(),
         );
     }
 
