@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\Schedule;
 use App\Models\ScheduleExecution;
+use App\PushNotifications\Services\PushNotificationEvents;
 use App\Services\Scheduling\RecurrenceService;
 use App\Services\Scheduling\RecurrenceType;
 use App\Services\Scheduling\ScheduleInput;
@@ -33,7 +34,7 @@ final class DispatchDueSchedulesCommand extends Command
 
     protected $description = 'Process due schedules and record schedule_executions idempotently.';
 
-    public function handle(RecurrenceService $recurrenceService): int
+    public function handle(RecurrenceService $recurrenceService, PushNotificationEvents $pushEvents): int
     {
         $isDryRun = (bool) $this->option('dry-run');
         $batchSize = max(1, (int) $this->option('batch'));
@@ -70,6 +71,11 @@ final class DispatchDueSchedulesCommand extends Command
             } catch (Throwable $e) {
                 $failed++;
                 $this->warn("Schedule [{$schedule->id}] failed: {$e->getMessage()}");
+
+                // Phase 8 — notify the owner that a scheduled execution failed.
+                // Decoupled: the command only knows PushNotificationEvents, never the
+                // push transport. Push failures must never affect scheduler outcome.
+                $this->notifyScheduleFailure($schedule, $pushEvents);
             }
         }
 
@@ -147,6 +153,26 @@ final class DispatchDueSchedulesCommand extends Command
         });
 
         return $result;
+    }
+
+    /**
+     * Emit a schedule_execution_failed push to the schedule owner.
+     *
+     * The failure rolls back the in-transaction ScheduleExecution, so a transient
+     * execution carrying schedule_id is passed for payload routing. This never
+     * throws — PushNotificationEvents swallows push errors internally.
+     */
+    private function notifyScheduleFailure(Schedule $schedule, PushNotificationEvents $pushEvents): void
+    {
+        $user = $schedule->user;
+
+        if ($user === null) {
+            return;
+        }
+
+        $execution = new ScheduleExecution(['schedule_id' => $schedule->id]);
+
+        $pushEvents->notifyScheduleExecutionFailed($user, $execution);
     }
 
     private function outputSummary(

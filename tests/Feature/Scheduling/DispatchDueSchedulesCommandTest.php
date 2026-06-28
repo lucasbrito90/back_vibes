@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Jobs\PushNotifications\PushNotificationJob;
 use App\Models\Schedule;
 use App\Models\ScheduleExecution;
 use App\Models\User;
@@ -9,6 +10,7 @@ use App\Models\Vibe;
 use App\Services\Scheduling\RecurrenceType;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 
 uses(RefreshDatabase::class);
 
@@ -494,6 +496,51 @@ test('invalid recurrence config triggers failure without aborting batch', functi
 
     // The good schedule must still be dispatched
     expect(ScheduleExecution::query()->where('schedule_id', $goodSchedule->id)->count())->toBe(1);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Push notification integration (Phase 8)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('a failed schedule notifies the owner via PushNotificationEvents', function () {
+    Bus::fake();
+
+    $user = dispatchUser();
+    $vibe = Vibe::factory()->for($user)->create();
+
+    // weekly without days_of_week — throws on recurrence advance → failure path
+    $badSchedule = Schedule::factory()->create([
+        'user_id' => $user->id,
+        'vibe_id' => $vibe->id,
+        'timezone' => 'UTC',
+        'start_time' => CarbonImmutable::now('UTC')->subMinutes(4),
+        'recurrence_type' => RecurrenceType::Weekly->value,
+        'recurrence_config' => null,
+        'is_enabled' => true,
+        'next_run_at' => CarbonImmutable::now('UTC')->subMinutes(4),
+        'last_run_at' => null,
+    ]);
+
+    $this->artisan('schedules:dispatch-due')->assertSuccessful();
+
+    // PushNotificationEvents → PushNotificationService → PushNotificationJob
+    Bus::assertDispatched(PushNotificationJob::class, function (PushNotificationJob $job) use ($user, $badSchedule) {
+        return $job->userId === $user->id
+            && $job->payload->data['type'] === 'schedule_execution_failed'
+            && $job->payload->data['schedule_id'] === (string) $badSchedule->id;
+    });
+});
+
+test('a successful schedule does not notify via PushNotificationEvents', function () {
+    Bus::fake();
+
+    $user = dispatchUser();
+    $vibe = Vibe::factory()->for($user)->create();
+    dueSchedule($user, $vibe);
+
+    $this->artisan('schedules:dispatch-due')->assertSuccessful();
+
+    Bus::assertNotDispatched(PushNotificationJob::class);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

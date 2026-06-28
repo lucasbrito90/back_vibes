@@ -8,15 +8,18 @@ use App\PushNotifications\Contracts\PushProviderResolver as PushProviderResolver
 use App\PushNotifications\Providers\FcmPushProvider;
 use App\PushNotifications\Providers\NoopPushProvider;
 use App\PushNotifications\PushProviderResolver;
+use App\PushNotifications\Services\PushNotificationEvents;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 
 /**
- * Registers the push provider abstraction (Phase 6).
+ * Registers the push provider abstraction (Phase 6) and the domain event entry
+ * point (Phase 8).
  *
- * Binds the FcmPushProvider (built from config/push_notifications.php) and the
- * PushProviderResolver as singletons. No jobs, events, Scheduler, or Smart Home
- * wiring is performed here.
+ * Binds the FcmPushProvider (built from config/push_notifications.php), the
+ * PushProviderResolver, and the PushNotificationEvents orchestrator as
+ * singletons. No Scheduler or Smart Home wiring is performed here — domains call
+ * PushNotificationEvents themselves.
  */
 final class PushNotificationServiceProvider extends ServiceProvider
 {
@@ -45,5 +48,8 @@ final class PushNotificationServiceProvider extends ServiceProvider
 
         // Bind the interface so the job and other callers can type-hint the contract.
         $this->app->alias(PushProviderResolver::class, PushProviderResolverContract::class);
+
+        // Phase 8 — single entry point used by Scheduler and Smart Home.
+        $this->app->singleton(PushNotificationEvents::class);
     }
 }
