@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Jobs\PushNotifications\PushNotificationJob;
 use App\Models\Device;
 use App\Models\ProviderConnection;
 use App\Models\User;
@@ -11,6 +12,7 @@ use App\SmartHome\ProviderType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Kreait\Firebase\Contract\Auth;
 use Lcobucci\JWT\Token\DataSet;
@@ -365,6 +367,28 @@ test('provider unreachable marks connection as unreachable', function () {
     $this->postJson(syncUrl($conn), [], syncHeaders())->assertStatus(502);
 
     expect($conn->fresh()->status)->toBe(ConnectionStatus::Unreachable->value);
+});
+
+test('provider unreachable notifies the owner via PushNotificationEvents', function () {
+    Bus::fake();
+
+    $user = syncUser('fb-sync-ur-notify');
+    $conn = syncConnection($user);
+
+    Http::fake(fn (Request $request) => throw new ConnectionException('timeout'));
+
+    syncAuth($user);
+
+    $this->postJson(syncUrl($conn), [], syncHeaders())->assertStatus(502);
+
+    Bus::assertDispatched(
+        PushNotificationJob::class,
+        function (PushNotificationJob $job) use ($user, $conn) {
+            return $job->userId === $user->id
+                && $job->payload->data['type'] === 'smart_home_provider_unreachable'
+                && $job->payload->data['provider_connection_id'] === (string) $conn->id;
+        }
+    );
 });
 
 test('provider unreachable marks all connection devices as unknown', function () {

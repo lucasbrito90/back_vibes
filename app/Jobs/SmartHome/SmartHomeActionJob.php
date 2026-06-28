@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs\SmartHome;
 
 use App\Models\VibeDeviceAction;
+use App\PushNotifications\Services\PushNotificationEvents;
 use App\SmartHome\DTOs\ActionResult;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
 use App\SmartHome\ProviderAdapterResolver;
@@ -52,9 +53,9 @@ final class SmartHomeActionJob implements ShouldQueue
         $this->onQueue('smart-home');
     }
 
-    public function handle(ProviderAdapterResolver $resolver): void
+    public function handle(ProviderAdapterResolver $resolver, PushNotificationEvents $pushEvents): void
     {
-        $action = VibeDeviceAction::with(['device', 'device.providerConnection'])
+        $action = VibeDeviceAction::with(['device', 'device.providerConnection', 'device.user'])
             ->find($this->vibeDeviceActionId);
 
         if ($action === null) {
@@ -110,6 +111,12 @@ final class SmartHomeActionJob implements ShouldQueue
             );
 
             $this->logResult($context, $result);
+
+            // Phase 8 — notify owner when the provider reported a failed action.
+            // Decoupled via PushNotificationEvents; never affects execution outcome.
+            if (! $result->success) {
+                $this->notifyActionFailed($action, $pushEvents);
+            }
         } catch (UnsupportedSmartHomeActionException $e) {
             Log::warning('SmartHomeActionJob: unsupported action — skipping.', [
                 ...$context,
@@ -126,7 +133,27 @@ final class SmartHomeActionJob implements ShouldQueue
                 'status_code' => null,
                 'error_message' => $e->getMessage(),
             ]);
+
+            // Phase 8 — an unexpected error also means the action could not complete.
+            $this->notifyActionFailed($action, $pushEvents);
         }
+    }
+
+    /**
+     * Emit a smart_home_action_failed push to the device owner.
+     *
+     * Decoupled: the job only knows PushNotificationEvents. Push errors are
+     * swallowed inside that service and never affect the Smart Home flow.
+     */
+    private function notifyActionFailed(VibeDeviceAction $action, PushNotificationEvents $pushEvents): void
+    {
+        $user = $action->device?->user;
+
+        if ($user === null) {
+            return;
+        }
+
+        $pushEvents->notifySmartHomeActionFailed($user, $action);
     }
 
     /**

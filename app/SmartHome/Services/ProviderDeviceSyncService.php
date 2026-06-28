@@ -6,6 +6,7 @@ namespace App\SmartHome\Services;
 
 use App\Models\Device;
 use App\Models\ProviderConnection;
+use App\PushNotifications\Services\PushNotificationEvents;
 use App\SmartHome\ConnectionStatus;
 use App\SmartHome\DeviceStatus;
 use App\SmartHome\DTOs\ProviderDevice;
@@ -33,6 +34,7 @@ final class ProviderDeviceSyncService
 {
     public function __construct(
         private readonly ProviderAdapterResolver $resolver,
+        private readonly PushNotificationEvents $pushEvents,
     ) {}
 
     /**
@@ -47,6 +49,14 @@ final class ProviderDeviceSyncService
             $providerDevices = $adapter->listDevices($connection);
         } catch (Throwable $e) {
             $this->markConnectionUnreachable($connection);
+
+            // Phase 8 — notify the owner that their Smart Home provider is
+            // unreachable. Decoupled via PushNotificationEvents; push errors never
+            // affect the sync outcome (the original exception still propagates).
+            $owner = $connection->user;
+            if ($owner !== null) {
+                $this->pushEvents->notifySmartHomeProviderUnreachable($owner, $connection);
+            }
 
             throw $e;
         }
