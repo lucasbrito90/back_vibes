@@ -235,9 +235,25 @@ test('returns a successful PushResult with message id on 200', function () {
 
     expect($result)->toBeInstanceOf(PushResult::class)
         ->and($result->success)->toBeTrue()
+        ->and($result->provider)->toBe('fcm')
         ->and($result->statusCode)->toBe(200)
         ->and($result->messageId)->toBe('projects/demo-project/messages/0:9999')
-        ->and($result->errorCode)->toBeNull();
+        ->and($result->errorCode)->toBeNull()
+        ->and($result->tokenPreview)->not->toBeNull()
+        ->and($result->tokenPreview)->not->toBe(FCM_DEVICE_TOKEN);
+});
+
+test('populates provider and a safe tokenPreview on a failed result', function () {
+    fakeFcm(fn () => Http::response([
+        'error' => ['code' => 404, 'message' => 'Requested entity was not found.', 'status' => 'NOT_FOUND'],
+    ], 404));
+
+    $result = fcmProvider()->send(fcmToken(), fcmPayload());
+
+    expect($result->success)->toBeFalse()
+        ->and($result->provider)->toBe('fcm')
+        ->and($result->tokenPreview)->not->toBeNull()
+        ->and($result->tokenPreview)->not->toBe(FCM_DEVICE_TOKEN);
 });
 
 test('maps an invalid token (400 INVALID_ARGUMENT) to a failed PushResult', function () {

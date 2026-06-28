@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\PushNotifications\Providers\FcmPushProvider;
+use App\PushNotifications\Providers\NoopPushProvider;
 use App\PushNotifications\PushProviderResolver;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
@@ -36,6 +37,8 @@ final class PushNotificationServiceProvider extends ServiceProvider
                 tokenExpirySkew: (int) ($config['token_expiry_skew'] ?? 60),
             );
         });
+
+        $this->app->singleton(NoopPushProvider::class);
 
         $this->app->singleton(PushProviderResolver::class);
     }
