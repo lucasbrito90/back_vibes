@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\PushNotifications\Contracts\PushProvider as PushProviderContract;
+use App\PushNotifications\Contracts\PushProviderResolver as PushProviderResolverContract;
 use App\PushNotifications\Providers\FcmPushProvider;
 use App\PushNotifications\Providers\NoopPushProvider;
 use App\PushNotifications\PushProvider as PushProviderType;
@@ -50,6 +51,12 @@ test('registers the Noop provider as a singleton', function () {
     $second = app(NoopPushProvider::class);
 
     expect($first)->toBe($second);
+});
+
+test('interface contract resolves to the concrete resolver', function () {
+    $resolver = app(PushProviderResolverContract::class);
+
+    expect($resolver)->toBeInstanceOf(PushProviderResolver::class);
 });
 
 test('registers the resolver as a singleton', function () {
