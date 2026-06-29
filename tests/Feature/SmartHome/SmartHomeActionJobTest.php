@@ -2,14 +2,17 @@
 
 declare(strict_types=1);
 
+use App\Jobs\PushNotifications\PushNotificationJob;
 use App\Jobs\SmartHome\SmartHomeActionJob;
 use App\Models\Device;
 use App\Models\ProviderConnection;
 use App\Models\VibeDeviceAction;
+use App\PushNotifications\Services\PushNotificationEvents;
 use App\SmartHome\ProviderAdapterResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -51,7 +54,10 @@ function jobAction(array $connOverrides = [], array $deviceOverrides = [], array
 function runJob(VibeDeviceAction|int $action): void
 {
     $id = $action instanceof VibeDeviceAction ? $action->id : $action;
-    (new SmartHomeActionJob($id))->handle(app(ProviderAdapterResolver::class));
+    (new SmartHomeActionJob($id))->handle(
+        app(ProviderAdapterResolver::class),
+        app(PushNotificationEvents::class),
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,6 +227,47 @@ it('handles an unexpected resolver error gracefully (unknown provider)', functio
     Log::shouldHaveReceived('error')
         ->withArgs(fn (string $message, array $context) => str_contains($message, 'unexpected error')
             && $context['success'] === false);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Push notification integration (Phase 8)
+// ─────────────────────────────────────────────────────────────────────────────
+
+it('notifies the owner via PushNotificationEvents on a failed action result', function () {
+    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
+    Bus::fake();
+
+    $action = jobAction();
+
+    runJob($action);
+
+    Bus::assertDispatched(PushNotificationJob::class, function (PushNotificationJob $job) use ($action) {
+        return $job->payload->data['type'] === 'smart_home_action_failed'
+            && $job->payload->data['device_id'] === (string) $action->device_id;
+    });
+});
+
+it('notifies the owner via PushNotificationEvents on an unexpected error', function () {
+    Http::fake();
+    Bus::fake();
+
+    // Unknown provider → resolver throws → catch-all failure path
+    $action = jobAction(connOverrides: ['provider' => 'unknown_provider'], deviceOverrides: ['provider' => 'unknown_provider']);
+
+    runJob($action);
+
+    Bus::assertDispatched(PushNotificationJob::class, fn (PushNotificationJob $job) => $job->payload->data['type'] === 'smart_home_action_failed');
+});
+
+it('does not notify via PushNotificationEvents on a successful action', function () {
+    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+    Bus::fake();
+
+    $action = jobAction();
+
+    runJob($action);
+
+    Bus::assertNotDispatched(PushNotificationJob::class);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
