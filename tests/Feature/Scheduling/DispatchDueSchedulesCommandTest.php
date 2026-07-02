@@ -3,12 +3,17 @@
 declare(strict_types=1);
 
 use App\Jobs\PushNotifications\PushNotificationJob;
+use App\Jobs\SmartHome\SmartHomeActionJob;
+use App\Models\Device;
+use App\Models\ProviderConnection;
 use App\Models\Schedule;
 use App\Models\ScheduleExecution;
 use App\Models\User;
 use App\Models\Vibe;
+use App\Models\VibeDeviceAction;
 use App\Services\Scheduling\RecurrenceType;
 use Carbon\CarbonImmutable;
+use Illuminate\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
@@ -46,6 +51,62 @@ function dueSchedule(User $user, Vibe $vibe, array $overrides = []): Schedule
         'next_run_at' => $nextRunAt,
         'last_run_at' => null,
     ], $overrides));
+}
+
+/**
+ * Build a due schedule whose vibe has Smart Home device actions owned by the same user.
+ */
+function dueScheduleWithDeviceActions(User $user, int $actionCount = 1, array $overrides = []): Schedule
+{
+    $vibe = Vibe::factory()->for($user)->create();
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+
+    for ($i = 0; $i < $actionCount; $i++) {
+        $device = Device::factory()->create([
+            'user_id' => $user->id,
+            'provider_connection_id' => $connection->id,
+            'provider' => $connection->provider,
+            'provider_device_id' => "light.room_{$i}",
+        ]);
+
+        VibeDeviceAction::factory()->create([
+            'vibe_id' => $vibe->id,
+            'device_id' => $device->id,
+            'sort_order' => $i,
+        ]);
+    }
+
+    return dueSchedule($user, $vibe, $overrides);
+}
+
+/**
+ * Fake push jobs only and route Smart Home enqueue through a controllable dispatcher.
+ *
+ * @param  callable(SmartHomeActionJob, int): void  $onSmartHomeEnqueue  Receives the job and 1-based attempt index.
+ */
+function fakeSmartHomeDispatchWithEnqueueHandler(callable $onSmartHomeEnqueue): void
+{
+    /** @var Dispatcher $realDispatcher */
+    $realDispatcher = app(Dispatcher::class);
+    $attempt = 0;
+
+    $mock = Mockery::mock($realDispatcher)->makePartial();
+    $mock->shouldReceive('dispatch')
+        ->andReturnUsing(function ($command, $handler = null) use ($onSmartHomeEnqueue, &$attempt, $realDispatcher) {
+            if ($command instanceof SmartHomeActionJob) {
+                $attempt++;
+                $onSmartHomeEnqueue($command, $attempt);
+
+                return null;
+            }
+
+            return $realDispatcher->dispatch($command, $handler);
+        });
+
+    app()->instance(Illuminate\Contracts\Bus\Dispatcher::class, $mock);
+    app()->instance(Dispatcher::class, $mock);
+
+    Bus::fake([PushNotificationJob::class]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -565,4 +626,129 @@ test('command output includes dry-run indication when --dry-run is used', functi
     $this->artisan('schedules:dispatch-due', ['--dry-run' => true])
         ->expectsOutputToContain('Dry run')
         ->assertSuccessful();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Smart Home integration (Phase 4B)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('dispatched schedule enqueues Smart Home action jobs', function () {
+    Bus::fake();
+
+    $user = dispatchUser();
+    $schedule = dueScheduleWithDeviceActions($user, actionCount: 2);
+
+    $this->artisan('schedules:dispatch-due')->assertSuccessful();
+
+    expect(ScheduleExecution::query()->where('schedule_id', $schedule->id)->count())->toBe(1);
+    Bus::assertDispatchedTimes(SmartHomeActionJob::class, 2);
+});
+
+test('skipped duplicate schedule does not enqueue Smart Home jobs', function () {
+    Bus::fake();
+
+    $user = dispatchUser();
+    $nextRunAt = CarbonImmutable::now('UTC')->subMinutes(5);
+    $schedule = dueScheduleWithDeviceActions($user, overrides: [
+        'recurrence_type' => RecurrenceType::Daily->value,
+        'next_run_at' => $nextRunAt,
+    ]);
+
+    $occurrenceKey = "{$schedule->id}:{$nextRunAt->utc()->timestamp}";
+    ScheduleExecution::query()->create([
+        'schedule_id' => $schedule->id,
+        'occurrence_key' => $occurrenceKey,
+        'scheduled_for' => $nextRunAt,
+        'executed_at' => CarbonImmutable::now('UTC'),
+        'status' => 'dispatched',
+        'log' => null,
+    ]);
+
+    $this->artisan('schedules:dispatch-due')->assertSuccessful();
+
+    Bus::assertNotDispatched(SmartHomeActionJob::class);
+});
+
+test('dry-run does not enqueue Smart Home jobs', function () {
+    Bus::fake();
+
+    $user = dispatchUser();
+    dueScheduleWithDeviceActions($user);
+
+    $this->artisan('schedules:dispatch-due', ['--dry-run' => true])->assertSuccessful();
+
+    Bus::assertNotDispatched(SmartHomeActionJob::class);
+});
+
+test('validator failure skips Smart Home dispatch but keeps schedule execution', function () {
+    Bus::fake();
+
+    $owner = dispatchUser();
+    $other = dispatchUser();
+    $foreignVibe = Vibe::factory()->for($other)->create();
+    $schedule = dueSchedule($owner, $foreignVibe);
+
+    $this->artisan('schedules:dispatch-due')->assertSuccessful();
+
+    expect(ScheduleExecution::query()->where('schedule_id', $schedule->id)->count())->toBe(1);
+    Bus::assertNotDispatched(SmartHomeActionJob::class);
+});
+
+test('Smart Home dispatch exception does not fail scheduler or emit failure push', function () {
+    fakeSmartHomeDispatchWithEnqueueHandler(function (): void {
+        throw new RuntimeException('queue unavailable');
+    });
+
+    $user = dispatchUser();
+    $schedule = dueScheduleWithDeviceActions($user);
+
+    $this->artisan('schedules:dispatch-due')->assertSuccessful();
+
+    expect(ScheduleExecution::query()->where('schedule_id', $schedule->id)->count())->toBe(1);
+    Bus::assertNotDispatched(PushNotificationJob::class);
+});
+
+test('Smart Home dispatch failure on first schedule does not block second schedule', function () {
+    $enqueued = [];
+
+    fakeSmartHomeDispatchWithEnqueueHandler(function (SmartHomeActionJob $job, int $attempt) use (&$enqueued): void {
+        if ($attempt === 1) {
+            throw new RuntimeException('queue unavailable');
+        }
+
+        $enqueued[] = $job;
+    });
+
+    $user = dispatchUser();
+    $vibeOne = Vibe::factory()->for($user)->create();
+    $vibeTwo = Vibe::factory()->for($user)->create();
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+
+    foreach ([$vibeOne, $vibeTwo] as $index => $vibe) {
+        $device = Device::factory()->create([
+            'user_id' => $user->id,
+            'provider_connection_id' => $connection->id,
+            'provider' => $connection->provider,
+            'provider_device_id' => "light.block_{$index}",
+        ]);
+
+        VibeDeviceAction::factory()->create([
+            'vibe_id' => $vibe->id,
+            'device_id' => $device->id,
+            'sort_order' => 0,
+        ]);
+    }
+
+    $scheduleOne = dueSchedule($user, $vibeOne, [
+        'next_run_at' => CarbonImmutable::now('UTC')->subMinutes(10),
+    ]);
+    $scheduleTwo = dueSchedule($user, $vibeTwo, [
+        'next_run_at' => CarbonImmutable::now('UTC')->subMinutes(5),
+    ]);
+
+    $this->artisan('schedules:dispatch-due')->assertSuccessful();
+
+    expect(ScheduleExecution::query()->where('schedule_id', $scheduleOne->id)->count())->toBe(1)
+        ->and(ScheduleExecution::query()->where('schedule_id', $scheduleTwo->id)->count())->toBe(1)
+        ->and($enqueued)->toHaveCount(1);
 });
