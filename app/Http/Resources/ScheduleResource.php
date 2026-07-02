@@ -22,6 +22,9 @@ class ScheduleResource extends JsonResource
             'last_run_at' => $this->last_run_at?->toISOString(),
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
+            'vibe_name' => $this->vibe?->name,
+            'device_actions_count' => (int) ($this->vibe?->device_actions_count ?? 0),
+            'has_device_actions' => (bool) ($this->vibe?->device_actions_count ?? 0),
         ];
     }
 }
