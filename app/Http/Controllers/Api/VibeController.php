@@ -21,7 +21,10 @@ class VibeController extends Controller
         $this->authorize('viewAny', Vibe::class);
 
         $vibes = Vibe::where('user_id', $request->user()->id)
-            ->withCount('sounds')
+            ->withCount([
+                'sounds',
+                'schedules as active_schedules_count' => fn ($q) => $q->where('is_enabled', true),
+            ])
             ->latest()
             ->get();
 
@@ -37,6 +40,10 @@ class VibeController extends Controller
             'user_id' => $request->user()->id,
         ]);
 
+        $vibe->loadCount([
+            'schedules as active_schedules_count' => fn ($q) => $q->where('is_enabled', true),
+        ]);
+
         return new VibeResource($vibe);
     }
 
@@ -44,7 +51,10 @@ class VibeController extends Controller
     {
         $this->authorize('view', $vibe);
 
-        $vibe->loadCount('sounds');
+        $vibe->loadCount([
+            'sounds',
+            'schedules as active_schedules_count' => fn ($q) => $q->where('is_enabled', true),
+        ]);
 
         return new VibeResource($vibe);
     }
@@ -54,6 +64,10 @@ class VibeController extends Controller
         $this->authorize('update', $vibe);
 
         $vibe->update($request->validated());
+
+        $vibe->loadCount([
+            'schedules as active_schedules_count' => fn ($q) => $q->where('is_enabled', true),
+        ]);
 
         return new VibeResource($vibe);
     }

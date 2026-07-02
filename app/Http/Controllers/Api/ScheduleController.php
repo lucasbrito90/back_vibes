@@ -27,6 +27,7 @@ class ScheduleController extends Controller
         $this->authorize('viewAny', Schedule::class);
 
         $schedules = Schedule::where('user_id', $request->user()->id)
+            ->with(['vibe' => fn ($q) => $q->withCount('deviceActions')])
             ->orderByDesc('created_at')
             ->get();
 
@@ -56,12 +57,16 @@ class ScheduleController extends Controller
             'next_run_at' => $nextRunAt,
         ]);
 
+        $schedule->load(['vibe' => fn ($q) => $q->withCount('deviceActions')]);
+
         return (new ScheduleResource($schedule))->response()->setStatusCode(201);
     }
 
     public function show(Request $request, Schedule $schedule): ScheduleResource
     {
         $this->authorize('view', $schedule);
+
+        $schedule->load(['vibe' => fn ($q) => $q->withCount('deviceActions')]);
 
         return new ScheduleResource($schedule);
     }
@@ -91,6 +96,8 @@ class ScheduleController extends Controller
         }
 
         $schedule->save();
+
+        $schedule->load(['vibe' => fn ($q) => $q->withCount('deviceActions')]);
 
         return new ScheduleResource($schedule);
     }
