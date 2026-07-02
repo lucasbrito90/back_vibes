@@ -10,10 +10,13 @@ use App\PushNotifications\Services\PushNotificationEvents;
 use App\Services\Scheduling\RecurrenceService;
 use App\Services\Scheduling\RecurrenceType;
 use App\Services\Scheduling\ScheduleInput;
+use App\SmartHome\Services\VibeSmartHomeDispatchService;
+use App\SmartHome\Validation\ScheduleAutomationValidator;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -34,13 +37,18 @@ final class DispatchDueSchedulesCommand extends Command
 
     protected $description = 'Process due schedules and record schedule_executions idempotently.';
 
-    public function handle(RecurrenceService $recurrenceService, PushNotificationEvents $pushEvents): int
-    {
+    public function handle(
+        RecurrenceService $recurrenceService,
+        PushNotificationEvents $pushEvents,
+        ScheduleAutomationValidator $automationValidator,
+        VibeSmartHomeDispatchService $smartHomeDispatch,
+    ): int {
         $isDryRun = (bool) $this->option('dry-run');
         $batchSize = max(1, (int) $this->option('batch'));
         $nowUtc = CarbonImmutable::now('UTC');
 
         $due = Schedule::query()
+            ->with(['vibe.deviceActions.device.providerConnection'])
             ->where('is_enabled', true)
             ->whereNotNull('next_run_at')
             ->where('next_run_at', '<=', $nowUtc)
@@ -65,6 +73,11 @@ final class DispatchDueSchedulesCommand extends Command
 
                 if ($result === 'dispatched') {
                     $dispatched++;
+                    $this->dispatchSmartHomeAfterSchedule(
+                        $schedule,
+                        $automationValidator,
+                        $smartHomeDispatch,
+                    );
                 } elseif ($result === 'skipped_duplicate') {
                     $skippedDuplicate++;
                 }
@@ -153,6 +166,46 @@ final class DispatchDueSchedulesCommand extends Command
         });
 
         return $result;
+    }
+
+    /**
+     * Enqueue Smart Home jobs after a schedule occurrence was committed.
+     *
+     * Runs outside DB::transaction(). Failures are logged and swallowed so
+     * recurrence and batch processing continue (ADR-023, ADR-026).
+     */
+    private function dispatchSmartHomeAfterSchedule(
+        Schedule $schedule,
+        ScheduleAutomationValidator $validator,
+        VibeSmartHomeDispatchService $smartHomeDispatch,
+    ): void {
+        try {
+            if (! $validator->validate($schedule)) {
+                Log::warning('Schedule Smart Home dispatch skipped: validation failed.', [
+                    'schedule_id' => $schedule->id,
+                    'vibe_id' => $schedule->vibe_id,
+                    'user_id' => $schedule->user_id,
+                    'validator_failed' => true,
+                ]);
+
+                return;
+            }
+
+            $vibe = $schedule->vibe;
+
+            if ($vibe === null) {
+                return;
+            }
+
+            $smartHomeDispatch->dispatch($vibe);
+        } catch (Throwable $e) {
+            Log::warning('Schedule Smart Home dispatch failed.', [
+                'schedule_id' => $schedule->id,
+                'vibe_id' => $schedule->vibe_id,
+                'user_id' => $schedule->user_id,
+                'exception_class' => $e::class,
+            ]);
+        }
     }
 
     /**
