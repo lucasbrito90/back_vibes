@@ -37,7 +37,7 @@ test('title is "Schedule failed"', function () {
 test('body is the expected string', function () {
     $payload = ScheduleExecutionFailedNotification::build(makeExecution(['id' => 1, 'schedule_id' => 10]));
 
-    expect($payload->body)->toBe('One of your scheduled executions failed.');
+    expect($payload->body)->toBe('One of your schedules could not run.');
 });
 
 test('data contains type=schedule_execution_failed', function () {
