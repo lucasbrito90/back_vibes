@@ -12,7 +12,7 @@ use App\PushNotifications\DTOs\NotificationPayload;
  *
  * Payload content (ADR-019, Phase 8.5 builder refactor):
  *   title: "Smart Home unavailable"
- *   body:  "Your Smart Home provider is currently unreachable."
+ *   body:  "Your Smart Home connection is temporarily unavailable."
  *   data:  type, provider_connection_id, provider
  *
  * All data values are strings. No secrets. provider_connection_id is an opaque
@@ -24,7 +24,7 @@ final class SmartHomeProviderUnreachableNotification
     {
         return new NotificationPayload(
             title: 'Smart Home unavailable',
-            body: 'Your Smart Home provider is currently unreachable.',
+            body: 'Your Smart Home connection is temporarily unavailable.',
             data: [
                 'type' => 'smart_home_provider_unreachable',
                 'provider_connection_id' => (string) $connection->id,

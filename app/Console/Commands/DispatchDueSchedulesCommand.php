@@ -204,6 +204,7 @@ final class DispatchDueSchedulesCommand extends Command
                 'vibe_id' => $schedule->vibe_id,
                 'user_id' => $schedule->user_id,
                 'exception_class' => $e::class,
+                'error' => $e->getMessage(),
             ]);
         }
     }

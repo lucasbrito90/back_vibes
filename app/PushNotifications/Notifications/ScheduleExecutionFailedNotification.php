@@ -12,7 +12,7 @@ use App\PushNotifications\DTOs\NotificationPayload;
  *
  * Payload content (ADR-019, Phase 8.5 builder refactor):
  *   title: "Schedule failed"
- *   body:  "One of your scheduled executions failed."
+ *   body:  "One of your schedules could not run."
  *   data:  type, schedule_execution_id (when set), schedule_id (when set)
  *
  * All data values are strings. No secrets.
@@ -33,7 +33,7 @@ final class ScheduleExecutionFailedNotification
 
         return new NotificationPayload(
             title: 'Schedule failed',
-            body: 'One of your scheduled executions failed.',
+            body: 'One of your schedules could not run.',
             data: $data,
         );
     }

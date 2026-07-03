@@ -16,6 +16,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Log;
 
 uses(RefreshDatabase::class);
 
@@ -682,6 +683,7 @@ test('dry-run does not enqueue Smart Home jobs', function () {
 
 test('validator failure skips Smart Home dispatch but keeps schedule execution', function () {
     Bus::fake();
+    Log::spy();
 
     $owner = dispatchUser();
     $other = dispatchUser();
@@ -694,9 +696,16 @@ test('validator failure skips Smart Home dispatch but keeps schedule execution',
     Bus::assertNotDispatched(SmartHomeActionJob::class);
     // Phase 6A alignment: validator skip is log + continue — no push notification (ADR-026).
     Bus::assertNotDispatched(PushNotificationJob::class);
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context) => str_contains($message, 'validation failed')
+            && ($context['validator_failed'] ?? false) === true
+            && ($context['schedule_id'] ?? null) === $schedule->id);
 });
 
-test('Smart Home dispatch exception does not fail scheduler or emit failure push', function () {
+test('Smart Home dispatch exception logs safely and does not emit schedule failure push', function () {
+    Log::spy();
+
     fakeSmartHomeDispatchWithEnqueueHandler(function (): void {
         throw new RuntimeException('queue unavailable');
     });
@@ -708,6 +717,12 @@ test('Smart Home dispatch exception does not fail scheduler or emit failure push
 
     expect(ScheduleExecution::query()->where('schedule_id', $schedule->id)->count())->toBe(1);
     Bus::assertNotDispatched(PushNotificationJob::class);
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context) => str_contains($message, 'Schedule Smart Home dispatch failed')
+            && ($context['schedule_id'] ?? null) === $schedule->id
+            && ($context['exception_class'] ?? null) === RuntimeException::class
+            && ($context['error'] ?? null) === 'queue unavailable');
 });
 
 test('Smart Home dispatch failure on first schedule does not block second schedule', function () {
