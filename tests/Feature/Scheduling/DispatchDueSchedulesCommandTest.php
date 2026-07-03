@@ -692,6 +692,8 @@ test('validator failure skips Smart Home dispatch but keeps schedule execution',
 
     expect(ScheduleExecution::query()->where('schedule_id', $schedule->id)->count())->toBe(1);
     Bus::assertNotDispatched(SmartHomeActionJob::class);
+    // Phase 6A alignment: validator skip is log + continue — no push notification (ADR-026).
+    Bus::assertNotDispatched(PushNotificationJob::class);
 });
 
 test('Smart Home dispatch exception does not fail scheduler or emit failure push', function () {

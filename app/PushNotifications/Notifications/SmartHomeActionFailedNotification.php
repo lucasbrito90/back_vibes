@@ -16,6 +16,13 @@ use App\PushNotifications\DTOs\NotificationPayload;
  *   data:  type, device_id, vibe_id, action_type
  *
  * All data values are strings. No secrets.
+ *
+ * Phase 6A — schedule_id alignment note (ADR-024):
+ * schedule_id is intentionally absent. SmartHomeActionJob receives only a
+ * VibeDeviceAction; it has no access to the Schedule that triggered the dispatch.
+ * Propagating schedule_id would require threading it through
+ * VibeSmartHomeDispatchService → SmartHomeActionJob, changing the Smart Home
+ * runtime — outside the boundary of Phase 6A. Deferred per ADR-024.
  */
 final class SmartHomeActionFailedNotification
 {

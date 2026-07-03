@@ -118,6 +118,9 @@ final class SmartHomeActionJob implements ShouldQueue
                 $this->notifyActionFailed($action, $pushEvents);
             }
         } catch (UnsupportedSmartHomeActionException $e) {
+            // Unsupported action type is a provider-agnostic configuration issue;
+            // retrying will not help and the owner cannot act on a push for it.
+            // No push notification is emitted (ADR-026: log + skip + continue).
             Log::warning('SmartHomeActionJob: unsupported action — skipping.', [
                 ...$context,
                 'success' => false,
