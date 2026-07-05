@@ -35,7 +35,7 @@ test('title is "Smart Home unavailable"', function () {
 test('body is the expected string', function () {
     $payload = SmartHomeProviderUnreachableNotification::build(makeConnection(['id' => 1, 'provider' => 'home_assistant']));
 
-    expect($payload->body)->toBe('Your Smart Home provider is currently unreachable.');
+    expect($payload->body)->toBe('Your Smart Home connection is temporarily unavailable.');
 });
 
 test('data contains type=smart_home_provider_unreachable', function () {

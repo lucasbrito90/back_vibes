@@ -79,7 +79,7 @@ test('notifyScheduleExecutionFailed dispatches a job with the correct payload', 
 
     $payload = dispatchedPayload();
     expect($payload->title)->toBe('Schedule failed')
-        ->and($payload->body)->toBe('One of your scheduled executions failed.')
+        ->and($payload->body)->toBe('One of your schedules could not run.')
         ->and($payload->data['type'])->toBe('schedule_execution_failed')
         ->and($payload->data['schedule_execution_id'])->toBe((string) $execution->id)
         ->and($payload->data['schedule_id'])->toBe((string) $schedule->id);
@@ -137,7 +137,7 @@ test('notifySmartHomeProviderUnreachable dispatches a job with the correct paylo
 
     $payload = dispatchedPayload();
     expect($payload->title)->toBe('Smart Home unavailable')
-        ->and($payload->body)->toBe('Your Smart Home provider is currently unreachable.')
+        ->and($payload->body)->toBe('Your Smart Home connection is temporarily unavailable.')
         ->and($payload->data['type'])->toBe('smart_home_provider_unreachable')
         ->and($payload->data['provider_connection_id'])->toBe((string) $connection->id)
         ->and($payload->data['provider'])->toBe('home_assistant');

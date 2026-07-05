@@ -270,6 +270,21 @@ it('does not notify via PushNotificationEvents on a successful action', function
     Bus::assertNotDispatched(PushNotificationJob::class);
 });
 
+it('does not notify via PushNotificationEvents for an unsupported action type', function () {
+    // 'set_brightness' is not in HomeAssistantAdapter::ACTION_SERVICE_MAP, so
+    // executeAction() throws UnsupportedSmartHomeActionException.
+    // Phase 6A alignment: that catch block intentionally skips the push notification
+    // (ADR-026: log + skip + continue). This test pins that contract.
+    Http::fake();
+    Bus::fake();
+
+    $action = jobAction(actionOverrides: ['action_type' => 'set_brightness']);
+
+    runJob($action);
+
+    Bus::assertNotDispatched(PushNotificationJob::class);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Security — never log credentials
 // ─────────────────────────────────────────────────────────────────────────────
