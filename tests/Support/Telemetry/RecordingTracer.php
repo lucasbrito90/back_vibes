@@ -2,17 +2,22 @@
 
 declare(strict_types=1);
 
-namespace App\Telemetry\Noop;
+namespace Tests\Support\Telemetry;
 
 use App\Telemetry\Context\TraceContext;
 use App\Telemetry\Contracts\Span;
 use App\Telemetry\Contracts\Tracer;
+use App\Telemetry\Noop\NoopSpan;
 
-/**
- * @see NoopSpan
- */
-final class NoopTracer implements Tracer
+final class RecordingTracer implements Tracer
 {
+    private readonly RecordingActiveSpan $activeSpan;
+
+    public function __construct(private readonly TelemetryRecorder $recorder)
+    {
+        $this->activeSpan = new RecordingActiveSpan($recorder);
+    }
+
     public function startSpan(string $name, array $attributes = []): Span
     {
         return new NoopSpan;
@@ -20,7 +25,7 @@ final class NoopTracer implements Tracer
 
     public function activeSpan(): Span
     {
-        return new NoopSpan;
+        return $this->activeSpan;
     }
 
     public function currentContext(): ?TraceContext
