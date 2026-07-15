@@ -7,6 +7,7 @@ namespace App\Telemetry\OpenTelemetry;
 use App\Telemetry\Context\TraceContext;
 use App\Telemetry\Contracts\Span;
 use App\Telemetry\Contracts\Tracer;
+use App\Telemetry\Noop\NoopSpan;
 use OpenTelemetry\API\Trace\Span as ApiSpan;
 use OpenTelemetry\API\Trace\TracerInterface;
 
@@ -29,6 +30,17 @@ final class OpenTelemetryTracer implements Tracer
         $scope = $span->activate();
 
         return new OpenTelemetrySpan($span, $scope);
+    }
+
+    public function activeSpan(): Span
+    {
+        $span = ApiSpan::getCurrent();
+
+        if (! $span->getContext()->isValid()) {
+            return new NoopSpan;
+        }
+
+        return new OpenTelemetryActiveSpan($span);
     }
 
     public function currentContext(): ?TraceContext

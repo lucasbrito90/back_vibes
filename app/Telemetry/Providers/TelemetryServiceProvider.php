@@ -8,6 +8,9 @@ use App\Telemetry\Contracts\LoggerCorrelation;
 use App\Telemetry\Contracts\Meter;
 use App\Telemetry\Contracts\TelemetryManager;
 use App\Telemetry\Contracts\Tracer;
+use App\Telemetry\Http\HttpRequestTelemetry;
+use App\Telemetry\Http\HttpRouteNormalizer;
+use App\Telemetry\Logging\HttpErrorContextLogTap;
 use App\Telemetry\Logging\TraceCorrelationLogTap;
 use App\Telemetry\Noop\NoopTelemetryManager;
 use App\Telemetry\OpenTelemetry\OpenTelemetryManager;
@@ -58,32 +61,50 @@ final class TelemetryServiceProvider extends ServiceProvider
             LoggerCorrelation::class,
             fn (Application $app) => $app->make(TelemetryManager::class)->loggerCorrelation(),
         );
+
+        $this->app->singleton(HttpRequestTelemetry::class, function (Application $app) {
+            $config = $app['config'];
+
+            return new HttpRequestTelemetry(
+                tracer: $app->make(Tracer::class),
+                meter: $app->make(Meter::class),
+                routeNormalizer: new HttpRouteNormalizer,
+                environment: (string) $config->get('telemetry.environment', 'development'),
+                serviceName: (string) $config->get('telemetry.service_name', 'back_vibes-api'),
+            );
+        });
     }
 
     public function boot(): void
     {
-        $this->registerLogCorrelationTap();
+        $this->registerLogTaps();
         $this->registerFlushOnTermination();
     }
 
     /**
-     * Adds TraceCorrelationLogTap to every configured log channel without
-     * editing config/logging.php — trace_id / span_id then appear in the
-     * `extra` bag of every log record for every channel automatically
+     * Adds TraceCorrelationLogTap (Phase 7A) and HttpErrorContextLogTap
+     * (Phase 7B.1, Part 6) to every configured log channel without editing
+     * config/logging.php — trace_id / span_id, and safe HTTP route/method/
+     * status context on exception records, then appear in the `extra` bag
+     * of every log record for every channel automatically
      * (logs-philosophy.md §6).
      */
-    private function registerLogCorrelationTap(): void
+    private function registerLogTaps(): void
     {
         $config = $this->app['config'];
         $channels = (array) $config->get('logging.channels', []);
+        $taps = [TraceCorrelationLogTap::class, HttpErrorContextLogTap::class];
 
         foreach (array_keys($channels) as $channel) {
             $tap = (array) $config->get("logging.channels.{$channel}.tap", []);
 
-            if (! in_array(TraceCorrelationLogTap::class, $tap, true)) {
-                $tap[] = TraceCorrelationLogTap::class;
-                $config->set("logging.channels.{$channel}.tap", $tap);
+            foreach ($taps as $tapClass) {
+                if (! in_array($tapClass, $tap, true)) {
+                    $tap[] = $tapClass;
+                }
             }
+
+            $config->set("logging.channels.{$channel}.tap", $tap);
         }
     }
 
