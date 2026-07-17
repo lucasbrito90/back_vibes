@@ -18,6 +18,9 @@ final class TelemetryRecorder
     /** @var list<array{name: string, value: int|float, attributes: array<string, mixed>}> */
     public array $histogramCalls = [];
 
+    /** @var list<array{name: string, amount: int|float, attributes: array<string, mixed>}> */
+    public array $upDownCounterCalls = [];
+
     /** @var list<array<string, mixed>> */
     public array $spanAttributeCalls = [];
 
@@ -36,6 +39,24 @@ final class TelemetryRecorder
     public function recordHistogram(string $name, int|float $value, array $attributes): void
     {
         $this->histogramCalls[] = ['name' => $name, 'value' => $value, 'attributes' => $attributes];
+    }
+
+    public function recordUpDownCounterAdd(string $name, int|float $amount, array $attributes): void
+    {
+        $this->upDownCounterCalls[] = ['name' => $name, 'amount' => $amount, 'attributes' => $attributes];
+    }
+
+    /**
+     * Net sum of every add() call recorded for a given UpDownCounter name —
+     * the simplest possible proof that increments/decrements stayed in
+     * balance (Part 11 scenario 8, long-running worker safety).
+     */
+    public function netUpDownCounter(string $name): int|float
+    {
+        return array_sum(array_map(
+            fn (array $call) => $call['amount'],
+            array_filter($this->upDownCounterCalls, fn (array $call) => $call['name'] === $name),
+        ));
     }
 
     public function recordSpanAttributes(array $attributes): void

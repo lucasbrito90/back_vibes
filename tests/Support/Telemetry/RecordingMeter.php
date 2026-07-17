@@ -8,7 +8,6 @@ use App\Telemetry\Contracts\Counter;
 use App\Telemetry\Contracts\Histogram;
 use App\Telemetry\Contracts\Meter;
 use App\Telemetry\Contracts\UpDownCounter;
-use App\Telemetry\Noop\NoopUpDownCounter;
 
 final class RecordingMeter implements Meter
 {
@@ -26,6 +25,6 @@ final class RecordingMeter implements Meter
 
     public function upDownCounter(string $name, string $unit = '', string $description = ''): UpDownCounter
     {
-        return new NoopUpDownCounter;
+        return new RecordingUpDownCounter($this->recorder, $name);
     }
 }
