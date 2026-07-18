@@ -6,7 +6,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Vibe;
+use App\SmartHome\DTOs\SmartHomeDispatchResult;
 use App\SmartHome\Services\VibeSmartHomeDispatchService;
+use App\Telemetry\SmartHome\SmartHomeDispatchEntryPoint;
+use App\Telemetry\SmartHome\SmartHomeDispatchTelemetry;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,6 +24,13 @@ use Illuminate\Http\Request;
  * - Returns a dispatch summary.
  * - Never calls Home Assistant or any provider adapter.
  * - Never blocks audio playback on mobile.
+ *
+ * Phase 7B.4.2 wraps the dispatch() call with the `smart_home.dispatch`
+ * Business Span, tagged `ixora.dispatch.entry_point=manual` — this
+ * controller is the only place that knows "manual" is the right
+ * classification for this call; VibeSmartHomeDispatchService itself is
+ * unmodified and unaware telemetry exists (see
+ * backend-smart-home-dispatch-boundary.md).
  */
 final class VibeSmartHomeDispatchController extends Controller
 {
@@ -28,13 +38,18 @@ final class VibeSmartHomeDispatchController extends Controller
 
     public function __construct(
         private readonly VibeSmartHomeDispatchService $dispatchService,
+        private readonly SmartHomeDispatchTelemetry $dispatchTelemetry,
     ) {}
 
     public function __invoke(Request $request, Vibe $vibe): JsonResponse
     {
         $this->authorize('view', $vibe);
 
-        $result = $this->dispatchService->dispatch($vibe);
+        $result = $this->dispatchTelemetry->wrap(
+            SmartHomeDispatchEntryPoint::Manual,
+            fn () => $this->dispatchService->dispatch($vibe),
+            fn (SmartHomeDispatchResult $result) => [$result->dispatched, $result->skipped],
+        );
 
         return response()->json([
             'data' => [
