@@ -44,6 +44,18 @@ use Throwable;
  *   it. For every other Throwable (e.g. ProviderAdapterResolver rejecting
  *   an unknown provider slug, or any other unexpected error), the outcome
  *   is `failure`.
+ * - Span status (Phase 7B.4.5 — backend-business-failure-semantics.md
+ *   §1.3/§1.5): an `unsupported` outcome does NOT mark this span `ERROR`.
+ *   It is the exact analogue of an HTTP 4xx — the adapter successfully
+ *   determined the action cannot be mapped, a deterministic, provider-
+ *   agnostic configuration fact, not an operation that failed to complete.
+ *   `recordException()` still runs unconditionally (full context for
+ *   investigation is always cheap and safe — see Security review), but
+ *   `setError()` is skipped for that one classified outcome only. Every
+ *   other exception path (`failure`, and the fail-open `unknown`
+ *   classifier-degradation case) keeps marking the span `ERROR`, because
+ *   nothing about those paths is a recognized, designed business decision
+ *   — they are genuinely unexpected relative to this operation's contract.
  * - This class never imports App\SmartHome\Exceptions\
  *   UnsupportedSmartHomeActionException (or any other domain type) to tell
  *   these two cases apart — the caller supplies $classifyException, a
@@ -117,7 +129,14 @@ final class SmartHomeActionTelemetry
             $this->safely(function () use ($span, $outcome, $exception) {
                 $span->setAttribute('ixora.action.outcome', $outcome->value);
                 $span->recordException($exception);
-                $span->setError();
+
+                // Business Failure Semantics (Phase 7B.4.5): `unsupported`
+                // is a recognized, expected business outcome — analogous to
+                // an HTTP 4xx — never a span error. Every other exception
+                // path (failure, unknown) still marks the span ERROR.
+                if ($outcome !== SmartHomeActionOutcome::Unsupported) {
+                    $span->setError();
+                }
             });
             $this->safely(fn () => $span->end());
 
