@@ -48,12 +48,15 @@ test('SmartHomeActionTelemetry never imports OpenTelemetry SDK/API, a concrete N
     }
 });
 
-test('SmartHomeActionTelemetry depends only on Telemetry Contracts (Tracer, Span) besides PHP built-ins', function () {
+test('SmartHomeActionTelemetry depends only on Telemetry Contracts (Tracer, Span, Meter, Counter, Histogram) besides PHP built-ins', function () {
     $contents = file_get_contents(dirname(__DIR__, 4).'/app/Telemetry/SmartHome/SmartHomeActionTelemetry.php');
 
     preg_match_all('/^use\s+([^;]+);/m', $contents, $matches);
 
     $allowed = [
+        'App\Telemetry\Contracts\Counter',
+        'App\Telemetry\Contracts\Histogram',
+        'App\Telemetry\Contracts\Meter',
         'App\Telemetry\Contracts\Span',
         'App\Telemetry\Contracts\Tracer',
         'Throwable',
@@ -71,13 +74,23 @@ test('SmartHomeActionProvider and SmartHomeActionOutcome are plain enums with no
     }
 });
 
-test('app/Telemetry/SmartHome creates no metrics anywhere, including the new Action files — no Counter, Histogram, or UpDownCounter contract import', function () {
-    foreach (smartHomeActionTelemetryFiles() as $file) {
-        $contents = file_get_contents($file);
+/**
+ * Phase 7B.4.6 restatement: SmartHomeActionTelemetry.php is now the first
+ * file under app/Telemetry/SmartHome permitted to import a metrics
+ * contract (Counter/Histogram/Meter) — see
+ * SmartHomeBusinessMetricsDependencyRuleTest.php for the phase-specific
+ * assertions this introduces (metric names, label cardinality, and the
+ * continued absence of any metrics contract on SmartHomeActionProvider.php/
+ * SmartHomeActionOutcome.php, which remain plain, import-free enums —
+ * already covered above by "plain enums with no external imports").
+ */
+test('SmartHomeActionTelemetry imports exactly Counter, Histogram, and Meter for its Business Metrics — no UpDownCounter (not justified by the Architecture Review)', function () {
+    $contents = file_get_contents(dirname(__DIR__, 4).'/app/Telemetry/SmartHome/SmartHomeActionTelemetry.php');
 
-        expect(preg_match('/^use\s+App\\\\Telemetry\\\\Contracts\\\\(Counter|Histogram|UpDownCounter|Meter)\\\\?;/m', $contents))
-            ->toBe(0, "{$file} must not import a metrics contract.");
-    }
+    expect(preg_match('/^use\s+App\\\\Telemetry\\\\Contracts\\\\Counter;/m', $contents))->toBe(1)
+        ->and(preg_match('/^use\s+App\\\\Telemetry\\\\Contracts\\\\Histogram;/m', $contents))->toBe(1)
+        ->and(preg_match('/^use\s+App\\\\Telemetry\\\\Contracts\\\\Meter;/m', $contents))->toBe(1)
+        ->and(preg_match('/^use\s+App\\\\Telemetry\\\\Contracts\\\\UpDownCounter;/m', $contents))->toBe(0);
 });
 
 test('app/Telemetry/SmartHome never touches a logging facade in the new Action files — no logging changes in this phase', function () {

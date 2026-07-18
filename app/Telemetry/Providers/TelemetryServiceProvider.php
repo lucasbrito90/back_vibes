@@ -137,14 +137,24 @@ final class TelemetryServiceProvider extends ServiceProvider
         });
 
         $this->app->singleton(SmartHomeDispatchTelemetry::class, function (Application $app) {
+            $config = $app['config'];
+
             return new SmartHomeDispatchTelemetry(
                 tracer: $app->make(Tracer::class),
+                meter: $app->make(Meter::class),
+                environment: (string) $config->get('telemetry.environment', 'development'),
+                serviceName: (string) $config->get('telemetry.service_name', 'back_vibes-api'),
             );
         });
 
         $this->app->singleton(SmartHomeActionTelemetry::class, function (Application $app) {
+            $config = $app['config'];
+
             return new SmartHomeActionTelemetry(
                 tracer: $app->make(Tracer::class),
+                meter: $app->make(Meter::class),
+                environment: (string) $config->get('telemetry.environment', 'development'),
+                serviceName: (string) $config->get('telemetry.service_name', 'back_vibes-api'),
             );
         });
 
