@@ -6,13 +6,14 @@ use App\SmartHome\Adapters\HomeAssistantAdapter;
 use App\SmartHome\Contracts\ProviderAdapter;
 use App\SmartHome\ProviderAdapterResolver;
 use App\SmartHome\ProviderType;
+use App\Telemetry\SmartHome\SmartHomeProviderTelemetry;
 use Tests\TestCase;
 
 uses(TestCase::class);
 
 function makeResolver(): ProviderAdapterResolver
 {
-    return new ProviderAdapterResolver(new HomeAssistantAdapter);
+    return new ProviderAdapterResolver(new HomeAssistantAdapter(app(SmartHomeProviderTelemetry::class)));
 }
 
 test('resolves home_assistant by string slug', function () {

@@ -105,8 +105,11 @@ test('a successful action execution creates exactly one smart_home.action span t
         ->and($spans[0]['attributes']['ixora.action.provider'])->toBe('home_assistant')
         ->and($spans[0]['attributes']['ixora.action.retry'])->toBe(false);
 
+    // Phase 7B.4.4 nests one additional smart_home.provider span inside
+    // this one (see SmartHomeProviderBoundaryIntegrationTest.php) — both
+    // end exactly once each.
     expect($recorder->mergedSpanAttributes()['ixora.action.outcome'])->toBe('success')
-        ->and($recorder->spanEndCalls)->toBe(1);
+        ->and($recorder->spanEndCalls)->toBe(2);
 });
 
 test('a failed provider ActionResult (HTTP 500) still creates one span tagged with outcome failure — no throw', function () {
@@ -117,9 +120,12 @@ test('a failed provider ActionResult (HTTP 500) still creates one span tagged wi
 
     expect(fn () => runActionBoundaryJob($action))->not->toThrow(Throwable::class);
 
+    // Phase 7B.4.4 nests one additional smart_home.provider span inside
+    // this one — a non-throwing failed ActionResult is not a span error on
+    // either span (see SmartHomeProviderBoundaryIntegrationTest.php).
     expect(actionBoundarySpanCalls($recorder))->toHaveCount(1)
         ->and($recorder->mergedSpanAttributes()['ixora.action.outcome'])->toBe('failure')
-        ->and($recorder->spanEndCalls)->toBe(1)
+        ->and($recorder->spanEndCalls)->toBe(2)
         ->and($recorder->spanExceptions)->toBe([]);
 });
 
@@ -208,9 +214,11 @@ test('the action span wraps exactly the single provider HTTP call — no extra c
 
     runActionBoundaryJob(actionBoundaryAction());
 
+    // Phase 7B.4.4 nests one additional smart_home.provider span inside
+    // this one, ending exactly once too.
     Http::assertSentCount(1);
     expect(actionBoundarySpanCalls($recorder))->toHaveCount(1)
-        ->and($recorder->spanEndCalls)->toBe(1);
+        ->and($recorder->spanEndCalls)->toBe(2);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
