@@ -23,6 +23,7 @@ use App\Telemetry\Queue\QueueExecutionTelemetry;
 use App\Telemetry\Queue\QueueJobNormalizer;
 use App\Telemetry\Scheduler\SchedulerEventNormalizer;
 use App\Telemetry\Scheduler\SchedulerExecutionTelemetry;
+use App\Telemetry\SmartHome\SmartHomeDispatchTelemetry;
 use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Console\Events\ScheduledBackgroundTaskFinished;
@@ -130,6 +131,12 @@ final class TelemetryServiceProvider extends ServiceProvider
                 normalizer: new SchedulerEventNormalizer,
                 environment: (string) $config->get('telemetry.environment', 'development'),
                 serviceName: (string) $config->get('telemetry.service_name', 'back_vibes-api'),
+            );
+        });
+
+        $this->app->singleton(SmartHomeDispatchTelemetry::class, function (Application $app) {
+            return new SmartHomeDispatchTelemetry(
+                tracer: $app->make(Tracer::class),
             );
         });
     }
