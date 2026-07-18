@@ -31,6 +31,27 @@ final class TelemetryRecorder
 
     public int $spanEndCalls = 0;
 
+    /**
+     * Every Tracer::startSpan() call — added in Phase 7B.3 (Scheduler), the
+     * first module in this Telemetry Abstraction Layer permitted to create
+     * a domain span rather than only enrich an existing one. Each started
+     * span gets its own RecordingActiveSpan instance (see RecordingTracer),
+     * whose end()/setAttributes()/setError()/recordException() calls are
+     * still funneled into this same shared recorder — spanEndCalls,
+     * spanErrorCalls, spanExceptions, and spanAttributeCalls therefore
+     * reflect *every* span (active-span enrichment and started spans
+     * alike), while startSpanCalls lets a test isolate exactly which
+     * spans were newly created.
+     *
+     * @var list<array{name: string, attributes: array<string, mixed>}>
+     */
+    public array $startSpanCalls = [];
+
+    public function recordStartSpan(string $name, array $attributes): void
+    {
+        $this->startSpanCalls[] = ['name' => $name, 'attributes' => $attributes];
+    }
+
     public function recordCounterAdd(string $name, int|float $amount, array $attributes): void
     {
         $this->counterCalls[] = ['name' => $name, 'amount' => $amount, 'attributes' => $attributes];
