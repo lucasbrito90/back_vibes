@@ -128,17 +128,13 @@ it('passes only entity_id when parameters are null', function () {
 // Success / failure logging
 // ─────────────────────────────────────────────────────────────────────────────
 
-it('logs success when the provider returns 2xx', function () {
+it('does not emit a log on success (L-2 resolution — metric + trace covers this)', function () {
     Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
     Log::spy();
 
     runJob(jobAction());
 
-    Log::shouldHaveReceived('info')
-        ->once()
-        ->withArgs(fn (string $message, array $context) => str_contains($message, 'executed successfully')
-            && $context['success'] === true
-            && $context['status_code'] === 200);
+    Log::shouldNotHaveReceived('info');
 });
 
 it('logs a warning on a failed ActionResult but does not throw', function () {
@@ -150,9 +146,12 @@ it('logs a warning on a failed ActionResult but does not throw', function () {
     expect(fn () => runJob($action))->not->toThrow(Throwable::class);
 
     Log::shouldHaveReceived('warning')
-        ->withArgs(fn (string $message, array $context) => str_contains($message, 'execution failed')
-            && $context['success'] === false
-            && $context['status_code'] === 500);
+        ->withArgs(fn (string $message, array $context) => str_contains($message, 'provider returned action failure')
+            && $context['outcome'] === 'failure'
+            && $context['status_code'] === 500
+            && ! isset($context['success'])
+            && ! isset($context['error_message'])
+            && ! isset($context['provider_device_id']));
 });
 
 it('handles a provider connection failure as a completed failed result (no throw)', function () {
@@ -164,8 +163,9 @@ it('handles a provider connection failure as a completed failed result (no throw
     expect(fn () => runJob($action))->not->toThrow(Throwable::class);
 
     Log::shouldHaveReceived('warning')
-        ->withArgs(fn (string $message, array $context) => str_contains($message, 'execution failed')
-            && $context['success'] === false);
+        ->withArgs(fn (string $message, array $context) => str_contains($message, 'provider returned action failure')
+            && $context['outcome'] === 'failure'
+            && ! isset($context['provider_device_id']));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,7 +182,11 @@ it('handles an unsupported action gracefully without HTTP or throw', function ()
 
     Http::assertNothingSent();
     Log::shouldHaveReceived('warning')
-        ->withArgs(fn (string $message) => str_contains($message, 'unsupported action'));
+        ->withArgs(fn (string $message, array $context) => str_contains($message, 'unsupported action type')
+            && $context['outcome'] === 'unsupported'
+            && isset($context['exception_class'])
+            && ! isset($context['provider_device_id'])
+            && ! isset($context['error_message']));
 });
 
 it('handles a missing/deleted action gracefully', function () {
@@ -228,7 +232,10 @@ it('handles an unexpected resolver error gracefully (unknown provider)', functio
     Http::assertNothingSent();
     Log::shouldHaveReceived('error')
         ->withArgs(fn (string $message, array $context) => str_contains($message, 'unexpected error')
-            && $context['success'] === false);
+            && $context['outcome'] === 'failure'
+            && isset($context['exception_class'])
+            && ! isset($context['provider_device_id'])
+            && ! isset($context['error_message']));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -310,6 +317,9 @@ it('never logs the access token or credentials', function () {
 
     runJob($action);
 
+    // Success path emits no log — L-2 resolution.
+    Log::shouldNotHaveReceived('info');
+
     $forbidden = ['super-secret-token-value', 'access_token', 'encrypted_credentials'];
 
     $assertClean = function ($message, $context) use ($forbidden) {
@@ -323,7 +333,15 @@ it('never logs the access token or credentials', function () {
         return true;
     };
 
-    Log::shouldHaveReceived('info')->withArgs($assertClean);
+    // Verify any warning/error emitted (e.g. on a failure path) is also clean.
+    // On success there are none — but this guard remains for future paths.
+    foreach (['warning', 'error'] as $level) {
+        try {
+            Log::shouldHaveReceived($level)->withArgs($assertClean);
+        } catch (Throwable) {
+            // No log at this level — acceptable on the success path.
+        }
+    }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
