@@ -102,7 +102,6 @@ final class SmartHomeActionJob implements ShouldQueue
             'device_id' => $device->id,
             'provider_connection_id' => $connection->id,
             'provider' => $connection->provider,
-            'provider_device_id' => $device->provider_device_id,
             'action_type' => $action->action_type,
         ];
 
@@ -144,20 +143,18 @@ final class SmartHomeActionJob implements ShouldQueue
             // Unsupported action type is a provider-agnostic configuration issue;
             // retrying will not help and the owner cannot act on a push for it.
             // No push notification is emitted (ADR-026: log + skip + continue).
-            Log::warning('SmartHomeActionJob: unsupported action — skipping.', [
+            Log::warning('SmartHomeActionJob: unsupported action type — skipping.', [
                 ...$context,
-                'success' => false,
-                'status_code' => null,
-                'error_message' => $e->getMessage(),
+                'outcome' => SmartHomeActionOutcome::Unsupported->value,
+                'exception_class' => $e::class,
             ]);
         } catch (Throwable $e) {
             // Catch-all: provider/infrastructure errors must never break the
             // audio flow. Logged and completed gracefully (no retry storm).
             Log::error('SmartHomeActionJob: unexpected error executing action.', [
                 ...$context,
-                'success' => false,
-                'status_code' => null,
-                'error_message' => $e->getMessage(),
+                'outcome' => SmartHomeActionOutcome::Failure->value,
+                'exception_class' => $e::class,
             ]);
 
             // Phase 8 — an unexpected error also means the action could not complete.
@@ -187,19 +184,14 @@ final class SmartHomeActionJob implements ShouldQueue
      */
     private function logResult(array $context, ActionResult $result): void
     {
-        $context = [
-            ...$context,
-            'success' => $result->success,
-            'status_code' => $result->status_code,
-            'error_message' => $result->error_message,
-        ];
-
         if ($result->success) {
-            Log::info('SmartHomeActionJob: action executed successfully.', $context);
-
             return;
         }
 
-        Log::warning('SmartHomeActionJob: action execution failed (provider returned failure).', $context);
+        Log::warning('SmartHomeActionJob: provider returned action failure.', [
+            ...$context,
+            'outcome' => SmartHomeActionOutcome::Failure->value,
+            'status_code' => $result->status_code,
+        ]);
     }
 }
