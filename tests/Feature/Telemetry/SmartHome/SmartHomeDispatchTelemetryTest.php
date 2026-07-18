@@ -1,10 +1,15 @@
 <?php
 
 use App\Telemetry\Context\TraceContext;
+use App\Telemetry\Contracts\Counter;
+use App\Telemetry\Contracts\Histogram;
+use App\Telemetry\Contracts\Meter;
 use App\Telemetry\Contracts\Span;
 use App\Telemetry\Contracts\Tracer;
+use App\Telemetry\Contracts\UpDownCounter;
 use App\Telemetry\SmartHome\SmartHomeDispatchEntryPoint;
 use App\Telemetry\SmartHome\SmartHomeDispatchTelemetry;
+use Tests\Support\Telemetry\RecordingMeter;
 use Tests\Support\Telemetry\RecordingTracer;
 use Tests\Support\Telemetry\TelemetryRecorder;
 
@@ -29,6 +34,7 @@ function fakeSmartHomeDispatchTelemetry(): TelemetryRecorder
     $recorder = new TelemetryRecorder;
 
     app()->bind(Tracer::class, fn () => new RecordingTracer($recorder));
+    app()->bind(Meter::class, fn () => new RecordingMeter($recorder));
     app()->forgetInstance(SmartHomeDispatchTelemetry::class);
 
     return $recorder;
@@ -42,6 +48,17 @@ function smartHomeDispatchSpanCalls(TelemetryRecorder $recorder): array
     return array_values(array_filter(
         $recorder->startSpanCalls,
         fn (array $call) => $call['name'] === 'smart_home.dispatch',
+    ));
+}
+
+/**
+ * @return list<array{name: string, amount: int|float, attributes: array<string, mixed>}>
+ */
+function smartHomeDispatchTotalCalls(TelemetryRecorder $recorder): array
+{
+    return array_values(array_filter(
+        $recorder->counterCalls,
+        fn (array $call) => $call['name'] === 'ixora.smart_home.dispatch.total',
     ));
 }
 
@@ -366,14 +383,112 @@ test('a broken Tracer combined with a dispatch failure still rethrows the origin
     ))->toThrow(DomainException::class, 'the real business failure');
 });
 
-// 9. No metrics are ever recorded by this module.
-test('wrap() never records a counter, histogram, or up-down counter', function () {
+// 9. Business Metrics (Phase 7B.4.6) — ixora.smart_home.dispatch.total. See
+// backend-smart-home-business-metrics.md for the full Design Record these
+// tests validate against. No Histogram/UpDownCounter is ever used here.
+test('wrap() records dispatched and skipped counts as two separate ixora.smart_home.dispatch.total increments, never merged into one outcome', function () {
+    $recorder = fakeSmartHomeDispatchTelemetry();
+    $telemetry = app(SmartHomeDispatchTelemetry::class);
+
+    $telemetry->wrap(SmartHomeDispatchEntryPoint::Manual, fn () => 'dispatch-result', fn ($result) => [3, 2]);
+
+    $calls = smartHomeDispatchTotalCalls($recorder);
+
+    $dispatched = array_values(array_filter($calls, fn ($c) => $c['attributes']['outcome'] === 'dispatched'));
+    $skipped = array_values(array_filter($calls, fn ($c) => $c['attributes']['outcome'] === 'skipped'));
+
+    expect($calls)->toHaveCount(2)
+        ->and($dispatched)->toHaveCount(1)
+        ->and($dispatched[0]['amount'])->toBe(3)
+        ->and($dispatched[0]['attributes']['entry_point'])->toBe('manual')
+        ->and($skipped)->toHaveCount(1)
+        ->and($skipped[0]['amount'])->toBe(2)
+        ->and($skipped[0]['attributes']['entry_point'])->toBe('manual');
+});
+
+test('wrap() still records both dispatched and skipped increments, even when one count is zero', function () {
+    $recorder = fakeSmartHomeDispatchTelemetry();
+    $telemetry = app(SmartHomeDispatchTelemetry::class);
+
+    $telemetry->wrap(SmartHomeDispatchEntryPoint::Scheduled, fn () => null, fn ($result) => [0, 0]);
+
+    $calls = smartHomeDispatchTotalCalls($recorder);
+
+    expect($calls)->toHaveCount(2)
+        ->and($calls[0]['amount'])->toBe(0)
+        ->and($calls[1]['amount'])->toBe(0);
+});
+
+test('wrap() records exactly one ixora.smart_home.dispatch.total increment of 1 with outcome=error when dispatch() throws — never a dispatched/skipped count', function () {
+    $recorder = fakeSmartHomeDispatchTelemetry();
+    $telemetry = app(SmartHomeDispatchTelemetry::class);
+
+    try {
+        $telemetry->wrap(
+            SmartHomeDispatchEntryPoint::Manual,
+            function () {
+                throw new RuntimeException('boom');
+            },
+            fn ($result) => [0, 0],
+        );
+    } catch (RuntimeException) {
+        // Expected — see failure-path tests above.
+    }
+
+    $calls = smartHomeDispatchTotalCalls($recorder);
+
+    expect($calls)->toHaveCount(1)
+        ->and($calls[0]['amount'])->toBe(1)
+        ->and($calls[0]['attributes']['outcome'])->toBe('error');
+});
+
+test('the dispatch metric label set is exactly {environment, service_name, entry_point, outcome} — no forbidden or unbounded label', function () {
     $recorder = fakeSmartHomeDispatchTelemetry();
     $telemetry = app(SmartHomeDispatchTelemetry::class);
 
     $telemetry->wrap(SmartHomeDispatchEntryPoint::Manual, fn () => null, fn ($result) => [1, 0]);
 
-    expect($recorder->counterCalls)->toBe([])
-        ->and($recorder->histogramCalls)->toBe([])
-        ->and($recorder->upDownCounterCalls)->toBe([]);
+    foreach (smartHomeDispatchTotalCalls($recorder) as $call) {
+        expect(array_keys($call['attributes']))->toEqualCanonicalizing(['environment', 'service_name', 'entry_point', 'outcome']);
+    }
+});
+
+test('a broken Counter (registration succeeds, add() throws) never prevents wrap() from running the dispatch callable or returning its real result — metrics recording is fail-open', function () {
+    app()->bind(Meter::class, fn () => new class implements Meter
+    {
+        public function counter(string $name, string $unit = '', string $description = ''): Counter
+        {
+            return new class implements Counter
+            {
+                public function add(int|float $amount, array $attributes = []): void
+                {
+                    throw new RuntimeException('counter exploded');
+                }
+            };
+        }
+
+        public function histogram(string $name, string $unit = '', string $description = ''): Histogram
+        {
+            throw new RuntimeException('not used by this class');
+        }
+
+        public function upDownCounter(string $name, string $unit = '', string $description = ''): UpDownCounter
+        {
+            throw new RuntimeException('not used by this class');
+        }
+    });
+    app()->forgetInstance(SmartHomeDispatchTelemetry::class);
+
+    $telemetry = app(SmartHomeDispatchTelemetry::class);
+
+    $result = null;
+    expect(function () use ($telemetry, &$result) {
+        $result = $telemetry->wrap(
+            SmartHomeDispatchEntryPoint::Manual,
+            fn () => 'the-real-business-result',
+            fn ($result) => [1, 0],
+        );
+    })->not->toThrow(Throwable::class);
+
+    expect($result)->toBe('the-real-business-result');
 });

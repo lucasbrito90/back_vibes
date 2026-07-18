@@ -1,11 +1,16 @@
 <?php
 
 use App\Telemetry\Context\TraceContext;
+use App\Telemetry\Contracts\Counter;
+use App\Telemetry\Contracts\Histogram;
+use App\Telemetry\Contracts\Meter;
 use App\Telemetry\Contracts\Span;
 use App\Telemetry\Contracts\Tracer;
+use App\Telemetry\Contracts\UpDownCounter;
 use App\Telemetry\SmartHome\SmartHomeActionOutcome;
 use App\Telemetry\SmartHome\SmartHomeActionProvider;
 use App\Telemetry\SmartHome\SmartHomeActionTelemetry;
+use Tests\Support\Telemetry\RecordingMeter;
 use Tests\Support\Telemetry\RecordingTracer;
 use Tests\Support\Telemetry\TelemetryRecorder;
 
@@ -27,6 +32,7 @@ function fakeSmartHomeActionTelemetry(): TelemetryRecorder
     $recorder = new TelemetryRecorder;
 
     app()->bind(Tracer::class, fn () => new RecordingTracer($recorder));
+    app()->bind(Meter::class, fn () => new RecordingMeter($recorder));
     app()->forgetInstance(SmartHomeActionTelemetry::class);
 
     return $recorder;
@@ -40,6 +46,28 @@ function smartHomeActionSpanCalls(TelemetryRecorder $recorder): array
     return array_values(array_filter(
         $recorder->startSpanCalls,
         fn (array $call) => $call['name'] === 'smart_home.action',
+    ));
+}
+
+/**
+ * @return list<array{name: string, amount: int|float, attributes: array<string, mixed>}>
+ */
+function smartHomeActionTotalCalls(TelemetryRecorder $recorder): array
+{
+    return array_values(array_filter(
+        $recorder->counterCalls,
+        fn (array $call) => $call['name'] === 'ixora.smart_home.action.total',
+    ));
+}
+
+/**
+ * @return list<array{name: string, value: int|float, attributes: array<string, mixed>}>
+ */
+function smartHomeActionDurationCalls(TelemetryRecorder $recorder): array
+{
+    return array_values(array_filter(
+        $recorder->histogramCalls,
+        fn (array $call) => $call['name'] === 'ixora.smart_home.action.duration',
     ));
 }
 
@@ -516,16 +544,187 @@ test('a classifyResult callback that throws never affects the returned result �
         ->and($recorder->spanEndCalls)->toBe(1);
 });
 
-// 9. No metrics are ever recorded by this module.
-test('wrap() never records a counter, histogram, or up-down counter', function () {
+// 9. Business Metrics (Phase 7B.4.6) — ixora.smart_home.action.total and
+// ixora.smart_home.action.duration. See backend-smart-home-business-metrics.md
+// for the full Design Record these tests validate against.
+test('wrap() records exactly one ixora.smart_home.action.total increment of 1, labeled outcome=success and provider=home_assistant, on a successful attempt', function () {
+    $recorder = fakeSmartHomeActionTelemetry();
+    $telemetry = app(SmartHomeActionTelemetry::class);
+
+    $telemetry->wrap(
+        SmartHomeActionProvider::HomeAssistant,
+        false,
+        fn () => 'the-action-result',
+        fn ($result) => SmartHomeActionOutcome::Success,
+        noopClassifyException(),
+    );
+
+    $calls = smartHomeActionTotalCalls($recorder);
+
+    expect($calls)->toHaveCount(1)
+        ->and($calls[0]['amount'])->toBe(1)
+        ->and($calls[0]['attributes']['outcome'])->toBe('success')
+        ->and($calls[0]['attributes']['provider'])->toBe('home_assistant');
+});
+
+test('wrap() records ixora.smart_home.action.total with outcome=failure on a business failure — never merged into unsupported', function () {
+    $recorder = fakeSmartHomeActionTelemetry();
+    $telemetry = app(SmartHomeActionTelemetry::class);
+
+    try {
+        $telemetry->wrap(
+            SmartHomeActionProvider::HomeAssistant,
+            false,
+            function () {
+                throw new RuntimeException('boom');
+            },
+            noopClassifyResult(),
+            fn (Throwable $e) => SmartHomeActionOutcome::Failure,
+        );
+    } catch (RuntimeException) {
+        // Expected — see failure-path tests above.
+    }
+
+    $calls = smartHomeActionTotalCalls($recorder);
+
+    expect($calls)->toHaveCount(1)
+        ->and($calls[0]['attributes']['outcome'])->toBe('failure');
+});
+
+test('wrap() records ixora.smart_home.action.total with outcome=unsupported on an unsupported action — never silently merged into failure', function () {
+    $recorder = fakeSmartHomeActionTelemetry();
+    $telemetry = app(SmartHomeActionTelemetry::class);
+
+    try {
+        $telemetry->wrap(
+            SmartHomeActionProvider::HomeAssistant,
+            false,
+            function () {
+                throw new InvalidArgumentException('Unsupported smart home action [explode].');
+            },
+            noopClassifyResult(),
+            fn (Throwable $e) => SmartHomeActionOutcome::Unsupported,
+        );
+    } catch (InvalidArgumentException) {
+        // Expected.
+    }
+
+    $calls = smartHomeActionTotalCalls($recorder);
+
+    expect($calls)->toHaveCount(1)
+        ->and($calls[0]['attributes']['outcome'])->toBe('unsupported');
+});
+
+test('wrap() records ixora.smart_home.action.total with outcome=unknown when the exception classifier itself degrades (fail-open classification)', function () {
+    $recorder = fakeSmartHomeActionTelemetry();
+    $telemetry = app(SmartHomeActionTelemetry::class);
+
+    try {
+        $telemetry->wrap(
+            SmartHomeActionProvider::HomeAssistant,
+            false,
+            function () {
+                throw new RuntimeException('boom');
+            },
+            noopClassifyResult(),
+            function (Throwable $e) {
+                throw new RuntimeException('classifier exploded — degrades to unknown');
+            },
+        );
+    } catch (RuntimeException) {
+        // Expected.
+    }
+
+    $calls = smartHomeActionTotalCalls($recorder);
+
+    expect($calls)->toHaveCount(1)
+        ->and($calls[0]['attributes']['outcome'])->toBe('unknown');
+});
+
+test('wrap() records exactly one ixora.smart_home.action.duration observation, as a non-negative numeric value, with the same labels as the counter', function () {
+    $recorder = fakeSmartHomeActionTelemetry();
+    $telemetry = app(SmartHomeActionTelemetry::class);
+
+    $telemetry->wrap(SmartHomeActionProvider::Future, false, fn () => null, noopClassifyResult(), noopClassifyException());
+
+    $calls = smartHomeActionDurationCalls($recorder);
+
+    expect($calls)->toHaveCount(1)
+        ->and($calls[0]['value'])->toBeFloat()->toBeGreaterThanOrEqual(0.0)
+        ->and($calls[0]['attributes']['outcome'])->toBe('success')
+        ->and($calls[0]['attributes']['provider'])->toBe('future');
+});
+
+test('the action metrics label set is exactly {environment, service_name, outcome, provider} — no forbidden or unbounded label', function () {
     $recorder = fakeSmartHomeActionTelemetry();
     $telemetry = app(SmartHomeActionTelemetry::class);
 
     $telemetry->wrap(SmartHomeActionProvider::HomeAssistant, false, fn () => null, noopClassifyResult(), noopClassifyException());
 
-    expect($recorder->counterCalls)->toBe([])
-        ->and($recorder->histogramCalls)->toBe([])
-        ->and($recorder->upDownCounterCalls)->toBe([]);
+    $counterAttributes = smartHomeActionTotalCalls($recorder)[0]['attributes'];
+    $durationAttributes = smartHomeActionDurationCalls($recorder)[0]['attributes'];
+
+    expect(array_keys($counterAttributes))->toEqualCanonicalizing(['environment', 'service_name', 'outcome', 'provider'])
+        ->and(array_keys($durationAttributes))->toEqualCanonicalizing(['environment', 'service_name', 'outcome', 'provider']);
+});
+
+test('wrap() never doubles the action counter — exactly one increment per call regardless of outcome path', function () {
+    $recorder = fakeSmartHomeActionTelemetry();
+    $telemetry = app(SmartHomeActionTelemetry::class);
+
+    $telemetry->wrap(SmartHomeActionProvider::HomeAssistant, false, fn () => null, noopClassifyResult(), noopClassifyException());
+    $telemetry->wrap(SmartHomeActionProvider::HomeAssistant, true, fn () => null, noopClassifyResult(), noopClassifyException());
+
+    expect(smartHomeActionTotalCalls($recorder))->toHaveCount(2)
+        ->and(smartHomeActionDurationCalls($recorder))->toHaveCount(2);
+});
+
+test('a broken Counter/Histogram (registration succeeds, add()/record() throws) never prevents wrap() from running execute() or returning its real result — metrics recording is fail-open', function () {
+    app()->bind(Meter::class, fn () => new class implements Meter
+    {
+        public function counter(string $name, string $unit = '', string $description = ''): Counter
+        {
+            return new class implements Counter
+            {
+                public function add(int|float $amount, array $attributes = []): void
+                {
+                    throw new RuntimeException('counter exploded');
+                }
+            };
+        }
+
+        public function histogram(string $name, string $unit = '', string $description = ''): Histogram
+        {
+            return new class implements Histogram
+            {
+                public function record(int|float $value, array $attributes = []): void
+                {
+                    throw new RuntimeException('histogram exploded');
+                }
+            };
+        }
+
+        public function upDownCounter(string $name, string $unit = '', string $description = ''): UpDownCounter
+        {
+            throw new RuntimeException('not used by this class');
+        }
+    });
+    app()->forgetInstance(SmartHomeActionTelemetry::class);
+
+    $telemetry = app(SmartHomeActionTelemetry::class);
+
+    $result = null;
+    expect(function () use ($telemetry, &$result) {
+        $result = $telemetry->wrap(
+            SmartHomeActionProvider::HomeAssistant,
+            false,
+            fn () => 'the-real-provider-result',
+            noopClassifyResult(),
+            noopClassifyException(),
+        );
+    })->not->toThrow(Throwable::class);
+
+    expect($result)->toBe('the-real-provider-result');
 });
 
 // 10. Provider slug normalization — the Telemetry-layer enum, not the domain one.

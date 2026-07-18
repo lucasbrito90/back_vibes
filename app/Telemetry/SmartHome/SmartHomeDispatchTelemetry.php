@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Telemetry\SmartHome;
 
+use App\Telemetry\Contracts\Counter;
+use App\Telemetry\Contracts\Meter;
 use App\Telemetry\Contracts\Span;
 use App\Telemetry\Contracts\Tracer;
 use Throwable;
@@ -63,18 +65,58 @@ use Throwable;
  * SmartHomeDispatchResult, and any exception dispatch() itself raises) is
  * never affected — the exception, if any, is always rethrown unchanged.
  *
- * Consumes only App\Telemetry\Contracts\{Tracer,Span} — no OpenTelemetry SDK
- * import, no App\Models\*, App\SmartHome\*, App\Http\*, or
+ * Consumes only App\Telemetry\Contracts\{Tracer,Span,Meter,Counter} — no
+ * OpenTelemetry SDK import, no App\Models\*, App\SmartHome\*, App\Http\*, or
  * App\Console\Commands\* import anywhere in this class (enforced by
  * tests/Unit/Telemetry/SmartHome/SmartHomeDispatchTelemetryDependencyRuleTest.php).
- * No metric is created here — business metrics begin in Phase 7B.4.6. No
- * logging is changed here — business logging begins in Phase 7B.4.7.
+ * No logging is changed here — business logging begins in Phase 7B.4.7.
+ *
+ * Business Metrics (Phase 7B.4.6 — backend-smart-home-business-metrics.md):
+ * records exactly one Counter, `ixora.smart_home.dispatch.total` (unit
+ * `{action}`), labeled `entry_point` (manual/scheduled/future) and
+ * `outcome`. Unlike the Action boundary, one `dispatch()` call does not
+ * produce a single pass/fail outcome — it produces a *batch* of two counts
+ * (dispatched, skipped) plus, rarely, a thrown exception — so this class
+ * records the counter up to three times per wrap() call, once per outcome
+ * value that actually occurred:
+ *
+ * - `outcome=dispatched`, incremented by the batch's own dispatched-action
+ *   count (D1, always recorded, even when the count is zero).
+ * - `outcome=skipped`, incremented by the batch's own skipped-action count
+ *   (D1, always recorded, even when the count is zero) — never folded into
+ *   `dispatched` or `error` (Phase 7B.4.5 §3.1 classifies a skip as its own
+ *   distinct, expected Business outcome, not a failure).
+ * - `outcome=error`, incremented by exactly 1 (never by an action count —
+ *   the batch itself did not complete, so no per-action counts exist) only
+ *   when `dispatch()` throws (D2) — mirrors the Scheduler's own precedent
+ *   (`ixora.scheduler.execution.total{outcome=failed}`,
+ *   backend-business-failure-semantics.md §11).
+ *
+ * Recorded inside this class's own safely() fail-open guard — a broken
+ * Meter/Counter degrades to "no metric recorded", never to an affected
+ * dispatch() result or exception. Labels never include an ID (see
+ * backend-smart-home-business-metrics.md §"Cardinality review").
  */
 final class SmartHomeDispatchTelemetry
 {
     private const SPAN_NAME = 'smart_home.dispatch';
 
-    public function __construct(private readonly Tracer $tracer) {}
+    private const METRIC_DISPATCH_TOTAL = 'ixora.smart_home.dispatch.total';
+
+    private readonly Counter $dispatchTotal;
+
+    public function __construct(
+        private readonly Tracer $tracer,
+        Meter $meter,
+        private readonly string $environment,
+        private readonly string $serviceName,
+    ) {
+        $this->dispatchTotal = $meter->counter(
+            self::METRIC_DISPATCH_TOTAL,
+            unit: '{action}',
+            description: 'Total Smart Home actions dispatched, skipped, or lost to a dispatch failure, labeled by entry point and outcome.',
+        );
+    }
 
     /**
      * Wraps a single VibeSmartHomeDispatchService::dispatch() call.
@@ -101,22 +143,41 @@ final class SmartHomeDispatchTelemetry
                 $span->recordException($exception);
                 $span->setError();
             });
+            $this->safely(fn () => $this->recordCounter($entryPoint, 'error', 1));
             $this->safely(fn () => $span->end());
 
             throw $exception;
         }
 
-        $this->safely(function () use ($span, $extractCounts, $result) {
+        $this->safely(function () use ($span, $entryPoint, $extractCounts, $result) {
             [$dispatchedActions, $skippedActions] = $extractCounts($result);
 
             $span->setAttributes([
                 'ixora.dispatch.dispatched_actions' => $dispatchedActions,
                 'ixora.dispatch.skipped_actions' => $skippedActions,
             ]);
+
+            $this->recordCounter($entryPoint, 'dispatched', $dispatchedActions);
+            $this->recordCounter($entryPoint, 'skipped', $skippedActions);
         });
         $this->safely(fn () => $span->end());
 
         return $result;
+    }
+
+    /**
+     * Records one `ixora.smart_home.dispatch.total` increment — see class
+     * docblock, "Business Metrics", for why up to three of these happen
+     * per wrap() call instead of exactly one.
+     */
+    private function recordCounter(SmartHomeDispatchEntryPoint $entryPoint, string $outcome, int $amount): void
+    {
+        $this->dispatchTotal->add($amount, [
+            'environment' => $this->environment,
+            'service_name' => $this->serviceName,
+            'entry_point' => $entryPoint->value,
+            'outcome' => $outcome,
+        ]);
     }
 
     /**
