@@ -14,6 +14,7 @@ use App\SmartHome\DTOs\ProviderDevice;
 use App\SmartHome\Exceptions\ProviderConnectionException;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
 use App\SmartHome\ProviderType;
+use App\Telemetry\SmartHome\SmartHomeProviderTelemetry;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Carbon;
@@ -30,6 +31,10 @@ use Throwable;
  */
 final class HomeAssistantAdapter implements ProviderAdapter
 {
+    public function __construct(
+        private readonly SmartHomeProviderTelemetry $providerTelemetry,
+    ) {}
+
     /**
      * Actionable HA domains imported in MVP. Read-only domains (e.g. sensor,
      * binary_sensor) are intentionally excluded — they cannot be turned on/off.
@@ -120,28 +125,37 @@ final class HomeAssistantAdapter implements ProviderAdapter
         }
 
         $domain = $this->domainFor($deviceId);
-        $payload = array_merge(['entity_id' => $deviceId], $parameters);
 
-        try {
-            $response = $this->client($connection)
-                ->post($this->baseUrl($connection)."/api/services/{$domain}/{$service}", $payload);
-        } catch (ConnectionException) {
+        // Business Telemetry boundary (Phase 7B.4.4): wraps only the
+        // provider-specific segment — domain/payload construction, the HTTP
+        // call, and response interpretation. Never wraps the unsupported-
+        // action check above, which returns before any provider work
+        // begins. See SmartHomeProviderTelemetry's docblock for the full
+        // boundary-discovery rationale.
+        return $this->providerTelemetry->wrap($domain, function () use ($connection, $deviceId, $domain, $service, $parameters) {
+            $payload = array_merge(['entity_id' => $deviceId], $parameters);
+
+            try {
+                $response = $this->client($connection)
+                    ->post($this->baseUrl($connection)."/api/services/{$domain}/{$service}", $payload);
+            } catch (ConnectionException) {
+                return new ActionResult(
+                    success: false,
+                    status_code: null,
+                    response: null,
+                    error_message: 'Provider connection failed.',
+                );
+            }
+
+            $body = $response->json();
+
             return new ActionResult(
-                success: false,
-                status_code: null,
-                response: null,
-                error_message: 'Provider connection failed.',
+                success: $response->successful(),
+                status_code: $response->status(),
+                response: is_array($body) ? $body : null,
+                error_message: $response->successful() ? null : 'Provider returned status '.$response->status().'.',
             );
-        }
-
-        $body = $response->json();
-
-        return new ActionResult(
-            success: $response->successful(),
-            status_code: $response->status(),
-            response: is_array($body) ? $body : null,
-            error_message: $response->successful() ? null : 'Provider returned status '.$response->status().'.',
-        );
+        });
     }
 
     public function testConnection(ProviderConnection $connection): ConnectionHealth
