@@ -23,6 +23,7 @@ use App\Telemetry\Queue\QueueExecutionTelemetry;
 use App\Telemetry\Queue\QueueJobNormalizer;
 use App\Telemetry\Scheduler\SchedulerEventNormalizer;
 use App\Telemetry\Scheduler\SchedulerExecutionTelemetry;
+use App\Telemetry\SmartHome\SmartHomeActionTelemetry;
 use App\Telemetry\SmartHome\SmartHomeDispatchTelemetry;
 use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Console\Events\CommandStarting;
@@ -136,6 +137,12 @@ final class TelemetryServiceProvider extends ServiceProvider
 
         $this->app->singleton(SmartHomeDispatchTelemetry::class, function (Application $app) {
             return new SmartHomeDispatchTelemetry(
+                tracer: $app->make(Tracer::class),
+            );
+        });
+
+        $this->app->singleton(SmartHomeActionTelemetry::class, function (Application $app) {
+            return new SmartHomeActionTelemetry(
                 tracer: $app->make(Tracer::class),
             );
         });
