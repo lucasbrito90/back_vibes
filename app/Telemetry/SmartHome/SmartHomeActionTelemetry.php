@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Telemetry\SmartHome;
 
+use App\Telemetry\Contracts\Counter;
+use App\Telemetry\Contracts\Histogram;
+use App\Telemetry\Contracts\Meter;
 use App\Telemetry\Contracts\Span;
 use App\Telemetry\Contracts\Tracer;
 use Throwable;
@@ -78,22 +81,75 @@ use Throwable;
  *   pre-existing architectural fact this phase does not change and must
  *   not be mistaken for something this class controls.
  *
- * Consumes only App\Telemetry\Contracts\{Tracer,Span} — no OpenTelemetry SDK
- * import, no App\Models\*, App\SmartHome\*, App\Jobs\*, or queue/HTTP/
- * scheduler import anywhere in this class (enforced by
+ * Consumes only App\Telemetry\Contracts\{Tracer,Span,Meter,Counter,Histogram}
+ * — no OpenTelemetry SDK import, no App\Models\*, App\SmartHome\*,
+ * App\Jobs\*, or queue/HTTP/scheduler import anywhere in this class
+ * (enforced by
  * tests/Unit/Telemetry/SmartHome/SmartHomeActionTelemetryDependencyRuleTest.php).
- * No metric is created here — business metrics begin in Phase 7B.4.6. No
- * logging is changed here — business logging begins in Phase 7B.4.7. No
+ * No logging is changed here — business logging begins in Phase 7B.4.7. No
  * provider-communication instrumentation is added here — that is Phase
- * 7B.4.4's Provider Boundary, which will nest under this class's span for
- * free via the same startSpan()-activates-context propagation mechanism
- * this class itself relies on to nest under the Queue Consumer span.
+ * 7B.4.4's Provider Boundary, which nests under this class's span for free
+ * via the same startSpan()-activates-context propagation mechanism this
+ * class itself relies on to nest under the Queue Consumer span.
+ *
+ * Business Metrics (Phase 7B.4.6 — backend-smart-home-business-metrics.md):
+ * records exactly two instruments, both Counters/Histograms recording the
+ * *same* classified outcome this class already computes for the span —
+ * never a second, independently-derived classification:
+ *
+ * - `ixora.smart_home.action.total` (Counter, unit `{action}`) — one
+ *   increment per wrap() call that reaches this boundary (i.e. per
+ *   completed action-execution attempt; guard-clause skips before this
+ *   boundary, see class-level "boundary" note above, are NOT counted here
+ *   — see the Metrics Design Review's own J1–J3 deferral), labeled
+ *   `outcome` (success/failure/unsupported/unknown — the exact
+ *   SmartHomeActionOutcome vocabulary, never merged) and `provider`
+ *   (home_assistant/future).
+ * - `ixora.smart_home.action.duration` (Histogram, unit `ms`) — the wall
+ *   clock time of $execute(), same two labels — the reserved latency
+ *   companion metrics-philosophy.md §11 and telemetry-naming-convention.md
+ *   §5 already anticipate.
+ *
+ * Both are recorded unconditionally (success and failure paths alike) —
+ * see recordMetrics() — inside the same safely() fail-open guard already
+ * protecting every other telemetry operation in this class: a broken
+ * Meter/Counter/Histogram can never affect $execute()'s result or the
+ * exception it may throw. Labels never include an ID (see
+ * backend-smart-home-business-metrics.md §"Cardinality review").
  */
 final class SmartHomeActionTelemetry
 {
     private const SPAN_NAME = 'smart_home.action';
 
-    public function __construct(private readonly Tracer $tracer) {}
+    private const METRIC_ACTION_TOTAL = 'ixora.smart_home.action.total';
+
+    private const METRIC_ACTION_DURATION = 'ixora.smart_home.action.duration';
+
+    /** Matches ixora.queue.job.duration's platform-wide unit choice. */
+    private const DURATION_UNIT = 'ms';
+
+    private readonly Counter $actionTotal;
+
+    private readonly Histogram $duration;
+
+    public function __construct(
+        private readonly Tracer $tracer,
+        Meter $meter,
+        private readonly string $environment,
+        private readonly string $serviceName,
+    ) {
+        $this->actionTotal = $meter->counter(
+            self::METRIC_ACTION_TOTAL,
+            unit: '{action}',
+            description: 'Total Smart Home action execution attempts, labeled by outcome and provider.',
+        );
+
+        $this->duration = $meter->histogram(
+            self::METRIC_ACTION_DURATION,
+            unit: self::DURATION_UNIT,
+            description: 'Smart Home action execution duration in milliseconds, labeled by outcome and provider.',
+        );
+    }
 
     /**
      * Wraps the provider-resolution + provider-execution segment of one
@@ -120,6 +176,7 @@ final class SmartHomeActionTelemetry
         callable $classifyException,
     ): mixed {
         $span = $this->startSpan($provider, $isRetryAttempt);
+        $startedAt = hrtime(true);
 
         try {
             $result = $execute();
@@ -138,6 +195,7 @@ final class SmartHomeActionTelemetry
                     $span->setError();
                 }
             });
+            $this->safely(fn () => $this->recordMetrics($outcome, $provider, $startedAt));
             $this->safely(fn () => $span->end());
 
             throw $exception;
@@ -146,9 +204,37 @@ final class SmartHomeActionTelemetry
         $outcome = $this->classify($classifyResult, $result);
 
         $this->safely(fn () => $span->setAttribute('ixora.action.outcome', $outcome->value));
+        $this->safely(fn () => $this->recordMetrics($outcome, $provider, $startedAt));
         $this->safely(fn () => $span->end());
 
         return $result;
+    }
+
+    /**
+     * Records the two Business Metrics this class owns (class docblock,
+     * "Business Metrics") — the counter and duration histogram share the
+     * exact same label set and the exact same already-classified
+     * $outcome/$provider values the span itself carries, so a metric can
+     * never disagree with its own span (Phase 7B.4.5's failure taxonomy is
+     * therefore structurally impossible to contradict here — there is only
+     * ever one classification, reused, not two independently derived
+     * ones). Called from inside this class's own safely() guard at both
+     * call sites — a broken Meter/Counter/Histogram degrades to "no metric
+     * recorded", never to an affected $execute() result or exception.
+     */
+    private function recordMetrics(SmartHomeActionOutcome $outcome, SmartHomeActionProvider $provider, int $startedAt): void
+    {
+        $durationMs = (hrtime(true) - $startedAt) / 1_000_000;
+
+        $labels = [
+            'environment' => $this->environment,
+            'service_name' => $this->serviceName,
+            'outcome' => $outcome->value,
+            'provider' => $provider->value,
+        ];
+
+        $this->actionTotal->add(1, $labels);
+        $this->duration->record($durationMs, $labels);
     }
 
     /**
