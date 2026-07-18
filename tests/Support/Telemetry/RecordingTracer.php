@@ -7,7 +7,6 @@ namespace Tests\Support\Telemetry;
 use App\Telemetry\Context\TraceContext;
 use App\Telemetry\Contracts\Span;
 use App\Telemetry\Contracts\Tracer;
-use App\Telemetry\Noop\NoopSpan;
 
 final class RecordingTracer implements Tracer
 {
@@ -18,9 +17,20 @@ final class RecordingTracer implements Tracer
         $this->activeSpan = new RecordingActiveSpan($recorder);
     }
 
+    /**
+     * Returns a distinct RecordingActiveSpan per call (a real Tracer starts
+     * a genuinely new span every time) that still records into the same
+     * shared recorder — added in Phase 7B.3 for SchedulerExecutionTelemetry,
+     * the first caller of startSpan() in this Telemetry Abstraction Layer.
+     */
     public function startSpan(string $name, array $attributes = []): Span
     {
-        return new NoopSpan;
+        $this->recorder->recordStartSpan($name, $attributes);
+
+        $span = new RecordingActiveSpan($this->recorder);
+        $span->setAttributes($attributes);
+
+        return $span;
     }
 
     public function activeSpan(): Span

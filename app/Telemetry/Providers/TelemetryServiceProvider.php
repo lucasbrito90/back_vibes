@@ -15,13 +15,21 @@ use App\Telemetry\Http\HttpRouteNormalizer;
 use App\Telemetry\Logging\ConsoleErrorContextLogTap;
 use App\Telemetry\Logging\HttpErrorContextLogTap;
 use App\Telemetry\Logging\QueueErrorContextLogTap;
+use App\Telemetry\Logging\SchedulerErrorContextLogTap;
 use App\Telemetry\Logging\TraceCorrelationLogTap;
 use App\Telemetry\Noop\NoopTelemetryManager;
 use App\Telemetry\OpenTelemetry\OpenTelemetryManager;
 use App\Telemetry\Queue\QueueExecutionTelemetry;
 use App\Telemetry\Queue\QueueJobNormalizer;
+use App\Telemetry\Scheduler\SchedulerEventNormalizer;
+use App\Telemetry\Scheduler\SchedulerExecutionTelemetry;
 use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Console\Events\CommandStarting;
+use Illuminate\Console\Events\ScheduledBackgroundTaskFinished;
+use Illuminate\Console\Events\ScheduledTaskFailed;
+use Illuminate\Console\Events\ScheduledTaskFinished;
+use Illuminate\Console\Events\ScheduledTaskSkipped;
+use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Queue\Events\JobExceptionOccurred;
@@ -112,6 +120,18 @@ final class TelemetryServiceProvider extends ServiceProvider
                 serviceName: (string) $config->get('telemetry.service_name', 'back_vibes-api'),
             );
         });
+
+        $this->app->singleton(SchedulerExecutionTelemetry::class, function (Application $app) {
+            $config = $app['config'];
+
+            return new SchedulerExecutionTelemetry(
+                tracer: $app->make(Tracer::class),
+                meter: $app->make(Meter::class),
+                normalizer: new SchedulerEventNormalizer,
+                environment: (string) $config->get('telemetry.environment', 'development'),
+                serviceName: (string) $config->get('telemetry.service_name', 'back_vibes-api'),
+            );
+        });
     }
 
     public function boot(): void
@@ -120,16 +140,18 @@ final class TelemetryServiceProvider extends ServiceProvider
         $this->registerFlushOnTermination();
         $this->registerQueueTelemetryListeners();
         $this->registerConsoleTelemetryListeners();
+        $this->registerSchedulerTelemetryListeners();
     }
 
     /**
      * Adds TraceCorrelationLogTap (Phase 7A), HttpErrorContextLogTap
-     * (Phase 7B.1, Part 6), and QueueErrorContextLogTap/
-     * ConsoleErrorContextLogTap (Phase 7B.2, Part 9) to every configured
-     * log channel without editing config/logging.php — trace_id / span_id,
-     * and safe HTTP/queue/console context on exception records, then
-     * appear in the `extra` bag of every log record for every channel
-     * automatically (logs-philosophy.md §6).
+     * (Phase 7B.1, Part 6), QueueErrorContextLogTap/
+     * ConsoleErrorContextLogTap (Phase 7B.2, Part 9), and
+     * SchedulerErrorContextLogTap (Phase 7B.3, Part 10) to every
+     * configured log channel without editing config/logging.php —
+     * trace_id / span_id, and safe HTTP/queue/console/scheduler context on
+     * exception records, then appear in the `extra` bag of every log
+     * record for every channel automatically (logs-philosophy.md §6).
      */
     private function registerLogTaps(): void
     {
@@ -140,6 +162,7 @@ final class TelemetryServiceProvider extends ServiceProvider
             HttpErrorContextLogTap::class,
             QueueErrorContextLogTap::class,
             ConsoleErrorContextLogTap::class,
+            SchedulerErrorContextLogTap::class,
         ];
 
         foreach (array_keys($channels) as $channel) {
@@ -207,5 +230,25 @@ final class TelemetryServiceProvider extends ServiceProvider
 
         $events->listen(CommandStarting::class, [ConsoleCommandTelemetry::class, 'commandStarting']);
         $events->listen(CommandFinished::class, [ConsoleCommandTelemetry::class, 'commandFinished']);
+    }
+
+    /**
+     * Phase 7B.3, Part 7 — the full set of Illuminate\Console\Scheduling
+     * lifecycle events this Laravel version dispatches (verified in
+     * Illuminate\Console\Scheduling\ScheduleRunCommand/ScheduleFinishCommand
+     * — see SchedulerExecutionTelemetry's docblock for exactly how each one
+     * is used). Registered directly on the container's event dispatcher,
+     * exactly like the Queue/Console listeners above — this module owns
+     * its own wiring.
+     */
+    private function registerSchedulerTelemetryListeners(): void
+    {
+        $events = $this->app->make(Dispatcher::class);
+
+        $events->listen(ScheduledTaskStarting::class, [SchedulerExecutionTelemetry::class, 'scheduledTaskStarting']);
+        $events->listen(ScheduledTaskFinished::class, [SchedulerExecutionTelemetry::class, 'scheduledTaskFinished']);
+        $events->listen(ScheduledTaskFailed::class, [SchedulerExecutionTelemetry::class, 'scheduledTaskFailed']);
+        $events->listen(ScheduledTaskSkipped::class, [SchedulerExecutionTelemetry::class, 'scheduledTaskSkipped']);
+        $events->listen(ScheduledBackgroundTaskFinished::class, [SchedulerExecutionTelemetry::class, 'scheduledBackgroundTaskFinished']);
     }
 }
