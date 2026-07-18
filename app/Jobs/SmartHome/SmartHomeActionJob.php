@@ -9,6 +9,9 @@ use App\PushNotifications\Services\PushNotificationEvents;
 use App\SmartHome\DTOs\ActionResult;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
 use App\SmartHome\ProviderAdapterResolver;
+use App\Telemetry\SmartHome\SmartHomeActionOutcome;
+use App\Telemetry\SmartHome\SmartHomeActionProvider;
+use App\Telemetry\SmartHome\SmartHomeActionTelemetry;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -53,8 +56,11 @@ final class SmartHomeActionJob implements ShouldQueue
         $this->onQueue('smart-home');
     }
 
-    public function handle(ProviderAdapterResolver $resolver, PushNotificationEvents $pushEvents): void
-    {
+    public function handle(
+        ProviderAdapterResolver $resolver,
+        PushNotificationEvents $pushEvents,
+        SmartHomeActionTelemetry $actionTelemetry,
+    ): void {
         $action = VibeDeviceAction::with(['device', 'device.providerConnection', 'device.user'])
             ->find($this->vibeDeviceActionId);
 
@@ -101,13 +107,30 @@ final class SmartHomeActionJob implements ShouldQueue
         ];
 
         try {
-            $adapter = $resolver->forProvider($connection->provider);
+            // Business Telemetry boundary (Phase 7B.4.3): wraps only
+            // provider resolution + provider execution — never logging or
+            // push notification, which stay outside the smart_home.action
+            // span. See SmartHomeActionTelemetry's docblock for the full
+            // boundary-discovery rationale.
+            $result = $actionTelemetry->wrap(
+                SmartHomeActionProvider::fromProviderSlug($connection->provider),
+                $this->attempts() > 1,
+                function () use ($resolver, $connection, $device, $action) {
+                    $adapter = $resolver->forProvider($connection->provider);
 
-            $result = $adapter->executeAction(
-                $connection,
-                $device->provider_device_id,
-                $action->action_type,
-                $action->parameters ?? [],
+                    return $adapter->executeAction(
+                        $connection,
+                        $device->provider_device_id,
+                        $action->action_type,
+                        $action->parameters ?? [],
+                    );
+                },
+                fn (ActionResult $result) => $result->success
+                    ? SmartHomeActionOutcome::Success
+                    : SmartHomeActionOutcome::Failure,
+                fn (Throwable $e) => $e instanceof UnsupportedSmartHomeActionException
+                    ? SmartHomeActionOutcome::Unsupported
+                    : SmartHomeActionOutcome::Failure,
             );
 
             $this->logResult($context, $result);

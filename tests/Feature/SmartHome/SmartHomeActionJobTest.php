@@ -9,6 +9,7 @@ use App\Models\ProviderConnection;
 use App\Models\VibeDeviceAction;
 use App\PushNotifications\Services\PushNotificationEvents;
 use App\SmartHome\ProviderAdapterResolver;
+use App\Telemetry\SmartHome\SmartHomeActionTelemetry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -57,6 +58,7 @@ function runJob(VibeDeviceAction|int $action): void
     (new SmartHomeActionJob($id))->handle(
         app(ProviderAdapterResolver::class),
         app(PushNotificationEvents::class),
+        app(SmartHomeActionTelemetry::class),
     );
 }
 
