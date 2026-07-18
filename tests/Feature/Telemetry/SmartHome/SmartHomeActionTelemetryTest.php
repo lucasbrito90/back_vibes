@@ -328,6 +328,57 @@ test('wrap() classifies an UnsupportedSmartHomeActionException-like failure as u
     expect($recorder->mergedSpanAttributes()['ixora.action.outcome'])->toBe('unsupported');
 });
 
+// 7b. Business Failure Semantics (Phase 7B.4.5) — an `unsupported` outcome
+// records the exception for context but never marks the span as errored:
+// it is a recognized business decision (HTTP-4xx analogue), not an
+// operation failure. Every other classified outcome still errors the span.
+test('wrap() records the exception but does NOT mark the span as errored when the classifier reports an unsupported outcome', function () {
+    $recorder = fakeSmartHomeActionTelemetry();
+    $telemetry = app(SmartHomeActionTelemetry::class);
+
+    $exception = new InvalidArgumentException('Unsupported smart home action [explode].');
+
+    expect(fn () => $telemetry->wrap(
+        SmartHomeActionProvider::HomeAssistant,
+        false,
+        function () use ($exception) {
+            throw $exception;
+        },
+        noopClassifyResult(),
+        fn (Throwable $e) => SmartHomeActionOutcome::Unsupported,
+    ))->toThrow(InvalidArgumentException::class);
+
+    expect($recorder->spanExceptions)->toHaveCount(1)
+        ->and($recorder->spanExceptions[0])->toBe($exception)
+        ->and($recorder->spanErrorCalls)->toBe(0)
+        ->and($recorder->spanEndCalls)->toBe(1)
+        ->and($recorder->mergedSpanAttributes()['ixora.action.outcome'])->toBe('unsupported');
+});
+
+test('wrap() still marks the span as errored when the classifier reports failure or the fail-open unknown outcome', function () {
+    foreach ([
+        fn (Throwable $e) => SmartHomeActionOutcome::Failure,
+        function (Throwable $e): SmartHomeActionOutcome {
+            throw new RuntimeException('classifier exploded — degrades to unknown');
+        },
+    ] as $classifyException) {
+        $recorder = fakeSmartHomeActionTelemetry();
+        $telemetry = app(SmartHomeActionTelemetry::class);
+
+        expect(fn () => $telemetry->wrap(
+            SmartHomeActionProvider::HomeAssistant,
+            false,
+            function () {
+                throw new RuntimeException('boom');
+            },
+            noopClassifyResult(),
+            $classifyException,
+        ))->toThrow(RuntimeException::class, 'boom');
+
+        expect($recorder->spanErrorCalls)->toBe(1);
+    }
+});
+
 test('wrap() never calls classifyResult when execute() throws', function () {
     $recorder = fakeSmartHomeActionTelemetry();
     $telemetry = app(SmartHomeActionTelemetry::class);

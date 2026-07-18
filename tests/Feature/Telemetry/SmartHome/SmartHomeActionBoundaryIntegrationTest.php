@@ -141,7 +141,7 @@ test('a provider connection failure (transport error) creates one span tagged wi
         ->and($recorder->mergedSpanAttributes()['ixora.action.outcome'])->toBe('failure');
 });
 
-test('an unsupported action type creates one span tagged with outcome unsupported, records the exception, and the job still does not throw', function () {
+test('an unsupported action type creates one span tagged with outcome unsupported, records the exception, but does NOT mark the span as errored (Phase 7B.4.5 — business outcome, not a span error), and the job still does not throw', function () {
     $recorder = fakeSmartHomeActionBoundaryTelemetry();
     Http::fake();
 
@@ -153,7 +153,7 @@ test('an unsupported action type creates one span tagged with outcome unsupporte
         ->and($recorder->mergedSpanAttributes()['ixora.action.outcome'])->toBe('unsupported')
         ->and($recorder->spanEndCalls)->toBe(1)
         ->and($recorder->spanExceptions)->toHaveCount(1)
-        ->and($recorder->spanErrorCalls)->toBe(1);
+        ->and($recorder->spanErrorCalls)->toBe(0);
 
     Http::assertNothingSent();
 });
@@ -171,7 +171,8 @@ test('an unexpected resolver error (unknown provider) creates one span tagged wi
 
     expect(actionBoundarySpanCalls($recorder))->toHaveCount(1)
         ->and($recorder->mergedSpanAttributes()['ixora.action.outcome'])->toBe('failure')
-        ->and($recorder->spanExceptions)->toHaveCount(1);
+        ->and($recorder->spanExceptions)->toHaveCount(1)
+        ->and($recorder->spanErrorCalls)->toBe(1);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
