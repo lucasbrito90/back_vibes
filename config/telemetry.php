@@ -157,4 +157,21 @@ return [
     'autoload_enabled' => (bool) env('OTEL_PHP_AUTOLOAD_ENABLED', false),
     'disabled_instrumentations' => env('OTEL_PHP_DISABLED_INSTRUMENTATIONS', ''),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Exporter configuration (informational)
+    |--------------------------------------------------------------------------
+    |
+    | These mirror the standard OTEL_*_EXPORTER env vars purely so tests and
+    | diagnostics can assert on them through config(). Changing them here has
+    | NO effect on the SDK export path — the SDK reads raw process env vars
+    | directly and independently of Laravel's config cache. The safe default
+    | for local development is "none" so no network connections are attempted.
+    |
+    */
+
+    'traces_exporter' => env('OTEL_TRACES_EXPORTER', 'otlp'),
+    'metrics_exporter' => env('OTEL_METRICS_EXPORTER', 'otlp'),
+    'logs_exporter' => env('OTEL_LOGS_EXPORTER', 'none'),
+
 ];

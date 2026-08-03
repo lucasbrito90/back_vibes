@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c997cdc180a91ae078480ebcedccb8f9",
+    "content-hash": "d5209d453a6b0be3ea5d48b799de28f7",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -4596,6 +4596,65 @@
                 "source": "https://github.com/opentelemetry-php/contrib-auto-pdo/tree/0.4.0"
             },
             "time": "2026-03-24T16:33:16+00:00"
+        },
+        {
+            "name": "open-telemetry/opentelemetry-logger-monolog",
+            "version": "1.3.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/opentelemetry-php/contrib-logger-monolog.git",
+                "reference": "56a8f545ff0eacd4c0f33499d303e9597b5b1e59"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/opentelemetry-php/contrib-logger-monolog/zipball/56a8f545ff0eacd4c0f33499d303e9597b5b1e59",
+                "reference": "56a8f545ff0eacd4c0f33499d303e9597b5b1e59",
+                "shasum": ""
+            },
+            "require": {
+                "monolog/monolog": "^1.1|^2|^3",
+                "open-telemetry/api": "^1.8",
+                "php": "^8.1"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3",
+                "google/protobuf": ">=3.5.0",
+                "guzzlehttp/guzzle": "^7.4",
+                "nyholm/psr7": "^1.6",
+                "open-telemetry/exporter-otlp": ">=1.0",
+                "open-telemetry/sdk": ">=1.0",
+                "phan/phan": "^5.0",
+                "phpbench/phpbench": "^1.2",
+                "phpstan/phpstan": "^1.1",
+                "phpstan/phpstan-phpunit": "^1.0",
+                "phpunit/phpunit": "^9.5",
+                "psalm/plugin-phpunit": "^0.19.2",
+                "vimeo/psalm": "6.4.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "OpenTelemetry\\Contrib\\Logs\\Monolog\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "Apache-2.0"
+            ],
+            "description": "OpenTelemetry Monolog handler.",
+            "homepage": "https://opentelemetry.io",
+            "keywords": [
+                "handler",
+                "logs",
+                "monolog",
+                "open-telemetry",
+                "opentelemetry",
+                "otel"
+            ],
+            "support": {
+                "source": "https://github.com/opentelemetry-php/contrib-logger-monolog/tree/1.3.0"
+            },
+            "time": "2026-06-20T11:49:02+00:00"
         },
         {
             "name": "open-telemetry/sdk",
