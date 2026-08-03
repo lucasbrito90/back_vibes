@@ -31,6 +31,9 @@ final class TelemetryConfig
         public readonly array $resourceAttributes,
         public readonly bool $autoloadEnabled,
         public readonly string $disabledInstrumentations,
+        public readonly string $tracesExporter,
+        public readonly string $metricsExporter,
+        public readonly string $logsExporter,
     ) {}
 
     /**
@@ -53,6 +56,9 @@ final class TelemetryConfig
             resourceAttributes: self::parseKeyValueList((string) ($config['resource_attributes'] ?? '')),
             autoloadEnabled: (bool) ($config['autoload_enabled'] ?? false),
             disabledInstrumentations: (string) ($config['disabled_instrumentations'] ?? ''),
+            tracesExporter: (string) ($config['traces_exporter'] ?? 'otlp'),
+            metricsExporter: (string) ($config['metrics_exporter'] ?? 'otlp'),
+            logsExporter: (string) ($config['logs_exporter'] ?? 'none'),
         );
     }
 
