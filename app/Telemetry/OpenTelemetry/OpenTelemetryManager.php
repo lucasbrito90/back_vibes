@@ -11,6 +11,7 @@ use App\Telemetry\Contracts\Tracer;
 use App\Telemetry\Noop\NoopMeter;
 use App\Telemetry\Noop\NoopTracer;
 use OpenTelemetry\API\Globals;
+use OpenTelemetry\API\Logs\LoggerProviderInterface;
 use OpenTelemetry\API\Metrics\MeterProviderInterface;
 use OpenTelemetry\API\Trace\TracerProviderInterface;
 use OpenTelemetry\SDK\SdkAutoloader;
@@ -34,9 +35,9 @@ use Throwable;
  * §"SDK bootstrap timing").
  *
  * This class therefore only ever *reads* Globals::tracerProvider() /
- * Globals::meterProvider() — whatever they resolve to (a real exporting
- * provider when the autoloader ran, or the SDK's own Noop providers when it
- * did not) is accepted as-is. Every read is wrapped in try/catch so that a
+ * Globals::meterProvider() / Globals::loggerProvider() — whatever they
+ * resolve to (real exporting providers when the autoloader ran, or the SDK's
+ * own Noop providers when it did not) is accepted as-is. Every read is wrapped in try/catch so that a
  * misbehaving Global (or the absence of the SDK autoloader entirely) can
  * never surface as an application error (telemetry-availability-policy.md).
  */
@@ -89,14 +90,16 @@ final class OpenTelemetryManager implements TelemetryManager
         try {
             $tracerProvider = Globals::tracerProvider();
             $meterProvider = Globals::meterProvider();
+            $loggerProvider = Globals::loggerProvider();
         } catch (Throwable) {
             return false;
         }
 
         $tracerFlushed = ! $tracerProvider instanceof TracerProviderInterface || $this->forceFlush($tracerProvider);
         $meterFlushed = ! $meterProvider instanceof MeterProviderInterface || $this->forceFlush($meterProvider);
+        $loggerFlushed = ! $loggerProvider instanceof LoggerProviderInterface || $this->forceFlush($loggerProvider);
 
-        return $tracerFlushed && $meterFlushed;
+        return $tracerFlushed && $meterFlushed && $loggerFlushed;
     }
 
     /**

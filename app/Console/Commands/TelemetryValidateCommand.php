@@ -10,19 +10,17 @@ use Illuminate\Console\Command;
 use Throwable;
 
 /**
- * Phase 9 (staging-runtime-integration) — local and CI diagnostic.
+ * Phase 8.8.8 update (originally Phase 9 staging-runtime-integration).
  *
- * Reports the telemetry runtime readiness of the running process without
- * printing any secret value. Emits one validation trace, one safe metric,
- * and one correlated log when the SDK is active — then force-flushes so
- * the signals land in Tempo/Prometheus before the process exits.
+ * Reports telemetry runtime readiness without printing any secret value.
+ * Covers traces, metrics, and logs (OTLP + stderr).
  *
  * SECURITY INVARIANT: OTEL_EXPORTER_OTLP_HEADERS is NEVER read, printed,
  * echoed, logged, or included in output. The command only reports whether
- * the header variable is *set* (non-empty).
+ * the Authorization header key is present.
  *
  * Exit codes:
- *   0 — all required prerequisites present and SDK responding correctly.
+ *   0 — all checked prerequisites satisfied.
  *   1 — one or more required prerequisites absent or SDK disabled by intent.
  */
 final class TelemetryValidateCommand extends Command
@@ -62,18 +60,20 @@ final class TelemetryValidateCommand extends Command
         $this->reportLine('service version', $config->serviceVersion, 'default');
         $this->reportLine('deployment.environment', $config->environment, 'default');
 
-        // ── Collector hostname (never full URL with potential embedded creds) ──
+        // ── Collector hostname (never the full URL with potential creds) ───
         $collectorHost = $this->extractHostname($config->otlpEndpoint);
         $this->reportLine('OTLP collector host', $collectorHost ?: '(not set)', $collectorHost ? 'default' : 'yellow');
         $this->reportLine('OTLP protocol', $config->otlpProtocol ?: '(not set)', 'default');
         $this->reportLine('OTLP timeout_ms', (string) $config->otlpTimeoutMs, 'default');
 
         // ── Authorization header: present/absent only — NEVER the value ────
-        // config('telemetry.otlp.headers') is the parsed key=value map of
-        // OTEL_EXPORTER_OTLP_HEADERS; checking for the 'Authorization' key
-        // tells us the header is configured without ever printing its value.
         $authHeaderSet = array_key_exists('Authorization', $config->otlpHeaders);
         $this->reportLine('OTLP Authorization header', $authHeaderSet ? 'set (not shown)' : 'NOT SET', $authHeaderSet ? 'green' : 'red');
+
+        // ── Exporter status ────────────────────────────────────────────────
+        $this->reportLine('traces exporter', $config->tracesExporter, 'default');
+        $this->reportLine('metrics exporter', $config->metricsExporter, 'default');
+        $this->reportLine('logs exporter', $config->logsExporter, $config->logsExporter === 'otlp' ? 'green' : 'yellow');
 
         // ── Sampler ────────────────────────────────────────────────────────
         $this->reportLine('traces sampler', $config->tracesSampler, 'default');
@@ -85,7 +85,7 @@ final class TelemetryValidateCommand extends Command
         $probeOk = true;
 
         if (! $sdkDisabled) {
-            $probeOk = $this->runFunctionalProbe($manager);
+            $probeOk = $this->runFunctionalProbe($manager, $config);
         } else {
             $this->line('<fg=yellow>SDK is disabled — skipping functional probe (Noop mode verified by Noop contract tests).</>');
         }
@@ -96,10 +96,10 @@ final class TelemetryValidateCommand extends Command
         $required = $this->option('require-sdk');
         $missing = [];
 
-        // The native extension is required when the SdkAutoloader will run
-        // (OTEL_PHP_AUTOLOAD_ENABLED=true). When the autoloader is off, the
-        // missing extension is only a warning (already reported above).
-        if (! $extLoaded && ($autoloadEnabled || $required)) {
+        // The extension is required only when the autoloader is expected to run
+        // and the SDK is not explicitly disabled. When OTEL_SDK_DISABLED=true,
+        // the extension is irrelevant — providers are Noop regardless.
+        if (! $extLoaded && ! $sdkDisabled && ($autoloadEnabled || $required)) {
             $missing[] = 'opentelemetry PHP extension not loaded (required when OTEL_PHP_AUTOLOAD_ENABLED=true)';
         }
 
@@ -140,12 +140,11 @@ final class TelemetryValidateCommand extends Command
     }
 
     /**
-     * Emits one validation span, one safe counter increment, and one log
-     * record — then force-flushes so telemetry lands before process exit.
-     * Never throws; returns false if the probe failed in a way worth
-     * surfacing to the operator.
+     * Emits one validation span, one safe counter, one OTLP validation log,
+     * and one stderr log — then force-flushes traces, metrics, and logs.
+     * Never throws.
      */
-    private function runFunctionalProbe(TelemetryManager $manager): bool
+    private function runFunctionalProbe(TelemetryManager $manager, TelemetryConfig $config): bool
     {
         $this->line('<fg=cyan>Running functional probe…</>');
 
@@ -159,16 +158,15 @@ final class TelemetryValidateCommand extends Command
             $span = $manager->tracer()->startSpan('ixora.telemetry.validate', [
                 'telemetry.validate' => true,
             ]);
-            $span->setAttribute('service.name', config('telemetry.service_name'))
-                ->setAttribute('deployment.environment', config('telemetry.environment'));
+            $span->setAttribute('service.name', $config->serviceName)
+                ->setAttribute('deployment.environment', $config->environment);
             $span->end();
             $traceOk = true;
         } catch (Throwable $e) {
             $this->line("<fg=red>Trace probe failed: {$e->getMessage()}</>");
         }
 
-        // Metric probe — uses ixora.http.server.request.total which already
-        // exists in the platform metric catalogue (never introduces a new name).
+        // Metric probe
         try {
             $counter = $manager->meter()->counter(
                 'ixora.telemetry.validate.total',
@@ -176,27 +174,31 @@ final class TelemetryValidateCommand extends Command
                 description: 'Validation probe counter — emitted once per ixora:telemetry-validate run.',
             );
             $counter->add(1, [
-                'service_name' => config('telemetry.service_name'),
-                'environment' => config('telemetry.environment'),
+                'service_name' => $config->serviceName,
+                'environment' => $config->environment,
             ]);
             $metricOk = true;
         } catch (Throwable $e) {
             $this->line("<fg=red>Metric probe failed: {$e->getMessage()}</>");
         }
 
-        // Log probe — goes through the chosen log channel (stderr in staging),
-        // picks up all registered correlation taps automatically.
+        // Log probe — emitted through the default log channel (picks up all
+        // registered correlation taps, including TraceCorrelationLogTap).
+        // When LOG_STACK=stderr,otel, the same record reaches both stderr
+        // and the OTLP handler. No user data is included.
         try {
-            logger()->debug('ixora.telemetry.validate: probe log record', [
-                'service_name' => config('telemetry.service_name'),
-                'environment' => config('telemetry.environment'),
+            logger()->info('Ixora observability validation signal', [
+                'ixora.validation' => true,
+                'service.name' => $config->serviceName,
+                'deployment.environment' => $config->environment,
+                'signal' => 'logs',
             ]);
             $logOk = true;
         } catch (Throwable $e) {
             $this->line("<fg=red>Log probe failed: {$e->getMessage()}</>");
         }
 
-        // Force flush
+        // Force flush — traces + metrics + logs
         try {
             $flushOk = $manager->flush();
         } catch (Throwable $e) {
@@ -206,7 +208,7 @@ final class TelemetryValidateCommand extends Command
         $this->reportLine('trace probe', $traceOk ? 'ok' : 'FAILED', $traceOk ? 'green' : 'red');
         $this->reportLine('metric probe', $metricOk ? 'ok' : 'FAILED', $metricOk ? 'green' : 'red');
         $this->reportLine('log probe', $logOk ? 'ok' : 'FAILED', $logOk ? 'green' : 'red');
-        $this->reportLine('force flush', $flushOk ? 'ok' : 'best-effort (SDK may not support forceFlush)', $flushOk ? 'green' : 'yellow');
+        $this->reportLine('force flush', $flushOk ? 'ok' : 'best-effort (no SDK forceFlush)', $flushOk ? 'green' : 'yellow');
 
         return $traceOk && $metricOk && $logOk;
     }
@@ -223,9 +225,8 @@ final class TelemetryValidateCommand extends Command
     }
 
     /**
-     * Returns only the hostname portion of a URL so that any credentials
-     * embedded in the URL (e.g. user:pass@host) are never printed.
-     * Returns empty string when the endpoint is not set or not parseable.
+     * Returns only the hostname portion of a URL — never prints credentials
+     * that might be embedded in the URL. Returns empty string when not set.
      */
     private function extractHostname(string $endpoint): string
     {

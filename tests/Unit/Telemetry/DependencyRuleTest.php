@@ -112,9 +112,20 @@ test('app/Telemetry/OpenTelemetry classes only implement Telemetry Contracts, ne
 
         if (preg_match_all('/^use\s+((?!OpenTelemetry\\\\|App\\\\Telemetry\\\\)[^;]+);/m', $contents, $matches)) {
             foreach ($matches[1] as $import) {
-                if (! str_starts_with($import, 'Throwable')) {
-                    $violations[] = $file->getPathname().' imports unexpected dependency '.$import;
+                if (str_starts_with($import, 'Throwable')) {
+                    continue;
                 }
+
+                // app/Telemetry/OpenTelemetry/Logging/ bridges OTel with Monolog —
+                // Monolog classes are a legitimate dependency in that sub-namespace only.
+                if (
+                    str_contains($file->getPathname(), DIRECTORY_SEPARATOR.'OpenTelemetry'.DIRECTORY_SEPARATOR.'Logging'.DIRECTORY_SEPARATOR)
+                    && str_starts_with($import, 'Monolog\\')
+                ) {
+                    continue;
+                }
+
+                $violations[] = $file->getPathname().' imports unexpected dependency '.$import;
             }
         }
     }
