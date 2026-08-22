@@ -25,3 +25,8 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+**/caddy
+/frankenphp
+# public/frankenphp-worker.php IS committed — it's the production Octane
+# worker entrypoint (docker/frankenphp/Caddyfile), not a local artifact.
