@@ -1,5 +1,15 @@
 {
-	frankenphp
+	frankenphp {
+		# Laravel Octane worker mode — the app boots once per worker and
+		# serves many requests from the same process (TD-5: fixes HTTP
+		# metrics that never accumulated under the old share-nothing
+		# php_server mode, and removes the per-request framework
+		# re-bootstrap cost). See ixora-infra docs, Phase 8.9, TD-5.
+		worker {
+			file /app/public/frankenphp-worker.php
+			num {$FRANKENPHP_NUM_WORKERS:2}
+		}
+	}
 	order php_server before file_server
 }
 
@@ -12,8 +22,13 @@
 		max_size 64MiB
 	}
 
-	# Laravel front controller (FrankenPHP worker mode off — simple php_server)
-	php_server
+	# Laravel front controller — routed through the persistent Octane
+	# worker above instead of re-bootstrapping Laravel per request.
+	php_server {
+		index frankenphp-worker.php
+		try_files {path} frankenphp-worker.php
+		resolve_root_symlink
+	}
 
 	file_server
 }
