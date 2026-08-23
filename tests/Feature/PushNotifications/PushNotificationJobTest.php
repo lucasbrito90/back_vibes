@@ -11,6 +11,7 @@ use App\PushNotifications\DTOs\NotificationPayload;
 use App\PushNotifications\DTOs\PushResult;
 use App\PushNotifications\Providers\NoopPushProvider;
 use App\PushNotifications\Services\PushTokenService;
+use App\Telemetry\PushNotifications\PushNotificationTelemetry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -82,7 +83,7 @@ test('job sends to all active tokens for the user', function () {
     $resolver->shouldReceive('resolve')->times(3)->andReturn($provider);
 
     app(PushNotificationJob::class, ['userId' => $user->id, 'payload' => pnjPayload()])
-        ->handle($resolver, app(PushTokenService::class));
+        ->handle($resolver, app(PushTokenService::class), app(PushNotificationTelemetry::class));
 });
 
 test('job skips inactive tokens', function () {
@@ -93,7 +94,7 @@ test('job skips inactive tokens', function () {
     $resolver = Mockery::mock(PushProviderResolver::class);
     $resolver->shouldReceive('resolve')->never();
 
-    pnjJob($user->id)->handle($resolver, app(PushTokenService::class));
+    pnjJob($user->id)->handle($resolver, app(PushTokenService::class), app(PushNotificationTelemetry::class));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +107,7 @@ test('logs a warning and returns when user does not exist', function () {
     $resolver = Mockery::mock(PushProviderResolver::class);
     $resolver->shouldReceive('resolve')->never();
 
-    pnjJob(99999)->handle($resolver, app(PushTokenService::class));
+    pnjJob(99999)->handle($resolver, app(PushTokenService::class), app(PushNotificationTelemetry::class));
 
     Log::shouldHaveReceived('warning')->once()->withArgs(
         fn ($msg) => str_contains($msg, 'user not found')
@@ -121,7 +122,7 @@ test('logs info and returns when user has no active tokens', function () {
     $resolver = Mockery::mock(PushProviderResolver::class);
     $resolver->shouldReceive('resolve')->never();
 
-    pnjJob($user->id)->handle($resolver, app(PushTokenService::class));
+    pnjJob($user->id)->handle($resolver, app(PushTokenService::class), app(PushNotificationTelemetry::class));
 
     Log::shouldHaveReceived('info')->withArgs(
         fn ($msg) => str_contains($msg, 'no active push tokens')
@@ -149,7 +150,7 @@ test('one token failure does not stop delivery to other tokens', function () {
 
     $resolver = stubResolver($provider);
 
-    pnjJob($user->id)->handle($resolver, app(PushTokenService::class));
+    pnjJob($user->id)->handle($resolver, app(PushTokenService::class), app(PushNotificationTelemetry::class));
 
     expect($callCount)->toBe(2);
 });
@@ -163,7 +164,7 @@ test('per-token exception is logged safely without full token', function () {
     $provider = Mockery::mock(PushProvider::class);
     $provider->shouldReceive('send')->andThrow(new RuntimeException('crash'));
 
-    pnjJob($user->id)->handle(stubResolver($provider), app(PushTokenService::class));
+    pnjJob($user->id)->handle(stubResolver($provider), app(PushTokenService::class), app(PushNotificationTelemetry::class));
 
     Log::shouldHaveReceived('error')->once()->withArgs(function (string $message, array $context = []) {
         return str_contains($message, 'unexpected error')
@@ -181,7 +182,7 @@ test('logs info safely on successful delivery', function () {
     $user = User::factory()->create();
     PushToken::factory()->for($user)->create();
 
-    pnjJob($user->id)->handle(stubResolver(mockProvider(successResult())), app(PushTokenService::class));
+    pnjJob($user->id)->handle(stubResolver(mockProvider(successResult())), app(PushTokenService::class), app(PushNotificationTelemetry::class));
 
     Log::shouldHaveReceived('info')->withArgs(fn ($msg) => str_contains($msg, 'push delivered'));
 });
@@ -192,7 +193,7 @@ test('logs warning safely on failed delivery', function () {
     $user = User::factory()->create();
     PushToken::factory()->for($user)->create();
 
-    pnjJob($user->id)->handle(stubResolver(mockProvider(failureResult('SOME_ERROR'))), app(PushTokenService::class));
+    pnjJob($user->id)->handle(stubResolver(mockProvider(failureResult('SOME_ERROR'))), app(PushTokenService::class), app(PushNotificationTelemetry::class));
 
     Log::shouldHaveReceived('warning')->withArgs(fn ($msg) => str_contains($msg, 'push failed'));
 });
@@ -203,7 +204,7 @@ test('no full token appears in any log context', function () {
     $user = User::factory()->create();
     PushToken::factory()->for($user)->create(['token' => JOB_DEVICE_TOKEN]);
 
-    pnjJob($user->id)->handle(stubResolver(mockProvider(successResult())), app(PushTokenService::class));
+    pnjJob($user->id)->handle(stubResolver(mockProvider(successResult())), app(PushTokenService::class), app(PushNotificationTelemetry::class));
 
     Log::shouldNotHaveReceived('info', [Mockery::on(function ($args) {
         return str_contains(json_encode($args), JOB_DEVICE_TOKEN);
@@ -222,7 +223,7 @@ test('UNREGISTERED error deactivates the token', function () {
 
     pnjJob($user->id)->handle(
         stubResolver(mockProvider(failureResult('UNREGISTERED', $token->tokenPreview()))),
-        app(PushTokenService::class),
+        app(PushTokenService::class), app(PushNotificationTelemetry::class),
     );
 
     expect($token->fresh()->is_active)->toBeFalse()
@@ -237,7 +238,7 @@ test('NOT_FOUND error deactivates the token', function () {
 
     pnjJob($user->id)->handle(
         stubResolver(mockProvider(failureResult('NOT_FOUND', $token->tokenPreview()))),
-        app(PushTokenService::class),
+        app(PushTokenService::class), app(PushNotificationTelemetry::class),
     );
 
     expect($token->fresh()->is_active)->toBeFalse();
@@ -249,7 +250,7 @@ test('INVALID_ARGUMENT error does not deactivate the token', function () {
 
     pnjJob($user->id)->handle(
         stubResolver(mockProvider(failureResult('INVALID_ARGUMENT', $token->tokenPreview()))),
-        app(PushTokenService::class),
+        app(PushTokenService::class), app(PushNotificationTelemetry::class),
     );
 
     expect($token->fresh()->is_active)->toBeTrue();
@@ -290,7 +291,7 @@ test('Noop provider path works without HTTP calls', function () {
     $noop = app(NoopPushProvider::class);
     $resolver = stubResolver($noop);
 
-    pnjJob($user->id)->handle($resolver, app(PushTokenService::class));
+    pnjJob($user->id)->handle($resolver, app(PushTokenService::class), app(PushNotificationTelemetry::class));
 
     // No exception = no stray HTTP, noop path completed successfully.
     expect(true)->toBeTrue();
