@@ -42,6 +42,7 @@ use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\JobReleasedAfterException;
 use Illuminate\Queue\Events\JobTimedOut;
+use Illuminate\Queue\Events\WorkerStopping;
 use Illuminate\Support\ServiceProvider;
 use Throwable;
 
@@ -181,6 +182,7 @@ final class TelemetryServiceProvider extends ServiceProvider
         $this->registerLogTaps();
         $this->registerFlushOnTermination();
         $this->registerQueueTelemetryListeners();
+        $this->registerQueueFlushListeners();
         $this->registerConsoleTelemetryListeners();
         $this->registerSchedulerTelemetryListeners();
     }
@@ -258,6 +260,59 @@ final class TelemetryServiceProvider extends ServiceProvider
         $events->listen(JobFailed::class, [QueueExecutionTelemetry::class, 'jobFailed']);
         $events->listen(JobReleasedAfterException::class, [QueueExecutionTelemetry::class, 'jobReleasedAfterException']);
         $events->listen(JobTimedOut::class, [QueueExecutionTelemetry::class, 'jobTimedOut']);
+    }
+
+    /**
+     * TD-6 (observability-foundation, discovered while validating Phase
+     * 7B.5 live in staging): registerFlushOnTermination()'s `terminating`
+     * hook — the *only* place this codebase ever called
+     * TelemetryManager::flush() before this phase — never fires for a
+     * `queue:work` daemon. Confirmed by reading
+     * Illuminate\Queue\Worker::kill() (vendor/laravel/framework/src/
+     * Illuminate/Queue/Worker.php): on every graceful shutdown signal
+     * (SIGTERM/SIGQUIT/SIGINT, including every redeploy) it dispatches a
+     * WorkerStopping event nothing here listened to, then calls
+     * `posix_kill(getmypid(), SIGKILL)` — an uncatchable signal that kills
+     * the process before Laravel's `app()->terminate()` (and therefore
+     * every `terminating` callback) or even the OTel SDK's own
+     * register_shutdown_function-based flush ever runs. Reproduced locally
+     * end-to-end: real queue:work daemon, real jobs, real OTel Collector —
+     * metrics and traces recorded during job processing never left the
+     * process, under normal operation *or* graceful shutdown; only logs
+     * did, because the "otel" Monolog channel exports synchronously per
+     * log call rather than through this batched flush path. This affects
+     * every metric/span recorded from *any* queue job platform-wide —
+     * ixora_queue_job_total/duration (D-04), ixora_smart_home_dispatch_
+     * total, ixora_smart_home_action_total/duration (D-02), and
+     * ixora_push_delivery_total (D-03, Phase 7B.5) alike — not something
+     * specific to Push.
+     *
+     * Fix: flush after every job (JobProcessed/JobFailed/
+     * JobExceptionOccurred/JobTimedOut — the same event set
+     * QueueExecutionTelemetry already listens to) instead of relying on
+     * process termination at all. WorkerStopping is also flushed as a
+     * supplementary safety net — it dispatches synchronously *before*
+     * Worker::kill()'s SIGKILL call, so a listener registered here does
+     * get a chance to run, unlike anything after that point.
+     */
+    private function registerQueueFlushListeners(): void
+    {
+        $events = $this->app->make(Dispatcher::class);
+
+        $flush = function () {
+            try {
+                $this->app->make(TelemetryManager::class)->flush();
+            } catch (Throwable) {
+                // Best-effort only — a flush failure must never affect job
+                // processing, retries, or worker shutdown.
+            }
+        };
+
+        $events->listen(JobProcessed::class, $flush);
+        $events->listen(JobFailed::class, $flush);
+        $events->listen(JobExceptionOccurred::class, $flush);
+        $events->listen(JobTimedOut::class, $flush);
+        $events->listen(WorkerStopping::class, $flush);
     }
 
     /**
