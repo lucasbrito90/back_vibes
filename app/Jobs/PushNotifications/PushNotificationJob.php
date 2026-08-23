@@ -10,6 +10,7 @@ use App\PushNotifications\Contracts\PushProviderResolver;
 use App\PushNotifications\DTOs\NotificationPayload;
 use App\PushNotifications\DTOs\PushResult;
 use App\PushNotifications\Services\PushTokenService;
+use App\Telemetry\PushNotifications\PushNotificationTelemetry;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -37,6 +38,14 @@ use Throwable;
  * - UNREGISTERED → deactivate immediately.
  * - NOT_FOUND    → deactivate immediately.
  * - INVALID_ARGUMENT → log warning only; do not deactivate (may be a payload issue).
+ *
+ * Business Metrics (Phase 7B.5 — App\Telemetry\PushNotifications\
+ * PushNotificationTelemetry): records `ixora.push.delivery.total{
+ * notification_type,outcome}` once per per-token delivery attempt —
+ * both the normal PushResult success/failure path and the unexpected-
+ * Throwable catch path count as `outcome=failure`. A job-level skip
+ * (user not found, no active tokens) is never counted — not a delivery
+ * attempt.
  *
  * Privacy:
  * - Full device tokens are never logged (ADR-021).
@@ -69,8 +78,11 @@ final class PushNotificationJob implements ShouldQueue
         $this->onQueue((string) config('push_notifications.queue.name', 'push'));
     }
 
-    public function handle(PushProviderResolver $resolver, PushTokenService $tokenService): void
-    {
+    public function handle(
+        PushProviderResolver $resolver,
+        PushTokenService $tokenService,
+        PushNotificationTelemetry $telemetry,
+    ): void {
         $user = User::with(['pushTokens' => fn ($q) => $q->active()])->find($this->userId);
 
         if ($user === null) {
@@ -93,19 +105,31 @@ final class PushNotificationJob implements ShouldQueue
         }
 
         foreach ($tokens as $token) {
-            $this->sendToToken($token, $resolver, $tokenService);
+            $this->sendToToken($token, $resolver, $tokenService, $telemetry);
         }
+    }
+
+    /**
+     * The ADR-019 event taxonomy value every NotificationPayload builder sets
+     * on `data['type']` (see App\PushNotifications\Notifications\*) — reused
+     * here as the `notification_type` metric label rather than threading a
+     * second, independently-derived value through PushNotificationEvents.
+     */
+    private function notificationType(): string
+    {
+        return $this->payload->data['type'] ?? 'unknown';
     }
 
     private function sendToToken(
         PushToken $token,
         PushProviderResolver $resolver,
         PushTokenService $tokenService,
+        PushNotificationTelemetry $telemetry,
     ): void {
         try {
             $provider = $resolver->resolve($token->provider);
             $result = $provider->send($token, $this->payload);
-            $this->logAndHandleResult($result, $token, $tokenService);
+            $this->logAndHandleResult($result, $token, $tokenService, $telemetry);
         } catch (Throwable $e) {
             Log::error('PushNotificationJob: unexpected error sending to token.', [
                 'push_token_id' => $token->id,
@@ -113,6 +137,8 @@ final class PushNotificationJob implements ShouldQueue
                 'provider' => $token->provider,
                 'error' => $e->getMessage(),
             ]);
+
+            $telemetry->recordDelivery($this->notificationType(), 'failure');
         }
     }
 
@@ -120,6 +146,7 @@ final class PushNotificationJob implements ShouldQueue
         PushResult $result,
         PushToken $token,
         PushTokenService $tokenService,
+        PushNotificationTelemetry $telemetry,
     ): void {
         if ($result->success) {
             Log::info('PushNotificationJob: push delivered.', [
@@ -127,6 +154,8 @@ final class PushNotificationJob implements ShouldQueue
                 'message_id' => $result->messageId,
                 'token_preview' => $result->tokenPreview,
             ]);
+
+            $telemetry->recordDelivery($this->notificationType(), 'success');
 
             return;
         }
@@ -138,6 +167,8 @@ final class PushNotificationJob implements ShouldQueue
             'error_message' => $result->errorMessage,
             'token_preview' => $result->tokenPreview,
         ]);
+
+        $telemetry->recordDelivery($this->notificationType(), 'failure');
 
         if ($result->errorCode !== null
             && in_array($result->errorCode, self::DEACTIVATABLE_ERROR_CODES, true)
