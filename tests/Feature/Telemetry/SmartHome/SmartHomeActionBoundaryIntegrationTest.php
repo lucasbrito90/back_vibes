@@ -102,8 +102,7 @@ test('a successful action execution creates exactly one smart_home.action span t
     $spans = actionBoundarySpanCalls($recorder);
 
     expect($spans)->toHaveCount(1)
-        ->and($spans[0]['attributes']['ixora.action.provider'])->toBe('home_assistant')
-        ->and($spans[0]['attributes']['ixora.action.retry'])->toBe(false);
+        ->and($spans[0]['attributes']['ixora.action.provider'])->toBe('home_assistant');
 
     // Phase 7B.4.4 nests one additional smart_home.provider span inside
     // this one (see SmartHomeProviderBoundaryIntegrationTest.php) — both
@@ -220,47 +219,6 @@ test('the action span wraps exactly the single provider HTTP call — no extra c
     Http::assertSentCount(1);
     expect(actionBoundarySpanCalls($recorder))->toHaveCount(1)
         ->and($recorder->spanEndCalls)->toBe(2);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Retry attribute — reflects Laravel's own attempt counter, not a custom one
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('a first attempt (no underlying queue job) is tagged ixora.action.retry = false', function () {
-    $recorder = fakeSmartHomeActionBoundaryTelemetry();
-    Http::fake([ACTION_BOUNDARY_HA_BASE.'/api/services/*' => Http::response([], 200)]);
-
-    runActionBoundaryJob(actionBoundaryAction());
-
-    $spans = actionBoundarySpanCalls($recorder);
-
-    expect($spans[0]['attributes']['ixora.action.retry'])->toBe(false);
-});
-
-test('an attempt reported by the underlying queue job as > 1 is tagged ixora.action.retry = true', function () {
-    $recorder = fakeSmartHomeActionBoundaryTelemetry();
-    Http::fake([ACTION_BOUNDARY_HA_BASE.'/api/services/*' => Http::response([], 200)]);
-
-    $action = actionBoundaryAction();
-
-    $job = new SmartHomeActionJob($action->id);
-    $job->job = new class
-    {
-        public function attempts(): int
-        {
-            return 2;
-        }
-    };
-
-    $job->handle(
-        app(ProviderAdapterResolver::class),
-        app(PushNotificationEvents::class),
-        app(SmartHomeActionTelemetry::class),
-    );
-
-    $spans = actionBoundarySpanCalls($recorder);
-
-    expect($spans[0]['attributes']['ixora.action.retry'])->toBe(true);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

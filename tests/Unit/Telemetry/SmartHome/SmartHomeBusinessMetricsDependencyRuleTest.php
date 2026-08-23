@@ -70,10 +70,14 @@ test('every metric name recorded by this phase follows the ixora.smart_home.* na
 });
 
 test('SmartHomeActionTelemetry and SmartHomeDispatchTelemetry record only the bounded label set their own Design Record allows — no forbidden or unbounded label', function () {
+    // action_type is intentionally NOT forbidden — TD-2 (backend-business-
+    // telemetry-validation.md §13) approved it as a bounded label on
+    // SmartHomeActionTelemetry, normalized via SmartHomeActionType, in
+    // Phase 7B.5. Every other identifier remains forbidden.
     $forbidden = [
         'action_id', 'device_id', 'entity_id', 'provider_device_id', 'provider_connection_id',
         'schedule_id', 'vibe_id', 'user_id', 'session_id', 'trace_id', 'span_id',
-        'url', 'token', 'credential', 'payload', 'header', 'body', 'json', 'action_type',
+        'url', 'token', 'credential', 'payload', 'header', 'body', 'json',
     ];
 
     foreach (smartHomeBusinessMetricsFiles() as $file) {
@@ -92,7 +96,7 @@ test('SmartHomeActionTelemetry and SmartHomeDispatchTelemetry record only the bo
     }
 });
 
-test('SmartHomeActionTelemetry\'s metric label set is exactly {environment, service_name, outcome, provider} — matching its span attributes\' own bounded vocabulary', function () {
+test('SmartHomeActionTelemetry\'s metric label set is exactly {environment, service_name, outcome, provider, action_type} — action_type added by TD-2 (Phase 7B.5)', function () {
     $contents = file_get_contents(dirname(__DIR__, 4).'/app/Telemetry/SmartHome/SmartHomeActionTelemetry.php');
 
     preg_match('/private function recordMetrics\\(.*?\\n    \\}\\n/s', $contents, $match);
@@ -101,7 +105,7 @@ test('SmartHomeActionTelemetry\'s metric label set is exactly {environment, serv
     preg_match_all("/'([a-z_]+)'\\s*=>/", $match[0], $matches);
 
     expect(array_values(array_unique($matches[1])))->toEqualCanonicalizing([
-        'environment', 'service_name', 'outcome', 'provider',
+        'environment', 'service_name', 'outcome', 'provider', 'action_type',
     ]);
 });
 

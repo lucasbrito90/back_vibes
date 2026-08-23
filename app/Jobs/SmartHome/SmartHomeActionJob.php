@@ -12,6 +12,7 @@ use App\SmartHome\ProviderAdapterResolver;
 use App\Telemetry\SmartHome\SmartHomeActionOutcome;
 use App\Telemetry\SmartHome\SmartHomeActionProvider;
 use App\Telemetry\SmartHome\SmartHomeActionTelemetry;
+use App\Telemetry\SmartHome\SmartHomeActionType;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -113,7 +114,7 @@ final class SmartHomeActionJob implements ShouldQueue
             // boundary-discovery rationale.
             $result = $actionTelemetry->wrap(
                 SmartHomeActionProvider::fromProviderSlug($connection->provider),
-                $this->attempts() > 1,
+                SmartHomeActionType::fromActionTypeSlug($action->action_type),
                 function () use ($resolver, $connection, $device, $action) {
                     $adapter = $resolver->forProvider($connection->provider);
 

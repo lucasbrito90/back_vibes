@@ -103,10 +103,15 @@ use Throwable;
  *   boundary, see class-level "boundary" note above, are NOT counted here
  *   — see the Metrics Design Review's own J1–J3 deferral), labeled
  *   `outcome` (success/failure/unsupported/unknown — the exact
- *   SmartHomeActionOutcome vocabulary, never merged) and `provider`
- *   (home_assistant/future).
+ *   SmartHomeActionOutcome vocabulary, never merged), `provider`
+ *   (home_assistant/future), and `action_type` (turn_on/turn_off/toggle/
+ *   other — TD-2, backend-business-telemetry-validation.md §13, added
+ *   Phase 7B.5; bounded via SmartHomeActionType::fromActionTypeSlug()
+ *   exactly like `provider` is via SmartHomeActionProvider — necessary
+ *   because an `unsupported` outcome can carry an arbitrary caller string
+ *   that was never validated against the domain ActionType enum).
  * - `ixora.smart_home.action.duration` (Histogram, unit `ms`) — the wall
- *   clock time of $execute(), same two labels — the reserved latency
+ *   clock time of $execute(), same three labels — the reserved latency
  *   companion metrics-philosophy.md §11 and telemetry-naming-convention.md
  *   §5 already anticipate.
  *
@@ -170,12 +175,12 @@ final class SmartHomeActionTelemetry
      */
     public function wrap(
         SmartHomeActionProvider $provider,
-        bool $isRetryAttempt,
+        SmartHomeActionType $actionType,
         callable $execute,
         callable $classifyResult,
         callable $classifyException,
     ): mixed {
-        $span = $this->startSpan($provider, $isRetryAttempt);
+        $span = $this->startSpan($provider);
         $startedAt = hrtime(true);
 
         try {
@@ -195,7 +200,7 @@ final class SmartHomeActionTelemetry
                     $span->setError();
                 }
             });
-            $this->safely(fn () => $this->recordMetrics($outcome, $provider, $startedAt));
+            $this->safely(fn () => $this->recordMetrics($outcome, $provider, $actionType, $startedAt));
             $this->safely(fn () => $span->end());
 
             throw $exception;
@@ -204,7 +209,7 @@ final class SmartHomeActionTelemetry
         $outcome = $this->classify($classifyResult, $result);
 
         $this->safely(fn () => $span->setAttribute('ixora.action.outcome', $outcome->value));
-        $this->safely(fn () => $this->recordMetrics($outcome, $provider, $startedAt));
+        $this->safely(fn () => $this->recordMetrics($outcome, $provider, $actionType, $startedAt));
         $this->safely(fn () => $span->end());
 
         return $result;
@@ -222,7 +227,7 @@ final class SmartHomeActionTelemetry
      * call sites — a broken Meter/Counter/Histogram degrades to "no metric
      * recorded", never to an affected $execute() result or exception.
      */
-    private function recordMetrics(SmartHomeActionOutcome $outcome, SmartHomeActionProvider $provider, int $startedAt): void
+    private function recordMetrics(SmartHomeActionOutcome $outcome, SmartHomeActionProvider $provider, SmartHomeActionType $actionType, int $startedAt): void
     {
         $durationMs = (hrtime(true) - $startedAt) / 1_000_000;
 
@@ -231,6 +236,7 @@ final class SmartHomeActionTelemetry
             'service_name' => $this->serviceName,
             'outcome' => $outcome->value,
             'provider' => $provider->value,
+            'action_type' => $actionType->value,
         ];
 
         $this->actionTotal->add(1, $labels);
@@ -247,12 +253,11 @@ final class SmartHomeActionTelemetry
      * Tracer::activeSpan() and never replaces the active span — additive,
      * not a takeover, exactly like SmartHomeDispatchTelemetry.
      */
-    private function startSpan(SmartHomeActionProvider $provider, bool $isRetryAttempt): Span
+    private function startSpan(SmartHomeActionProvider $provider): Span
     {
         try {
             return $this->tracer->startSpan(self::SPAN_NAME, [
                 'ixora.action.provider' => $provider->value,
-                'ixora.action.retry' => $isRetryAttempt,
             ]);
         } catch (Throwable) {
             return $this->inertSpan();
