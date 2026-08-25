@@ -80,21 +80,29 @@ final class SmartHomeProviderTelemetry
     public function __construct(private readonly Tracer $tracer) {}
 
     /**
-     * Wraps the provider-specific segment of one
-     * HomeAssistantAdapter::executeAction() call — domain/payload
-     * construction through the HTTP call and response interpretation.
+     * Wraps one HomeAssistantAdapter provider call: the provider-specific
+     * segment of executeAction() (domain/payload construction through the
+     * HTTP call and response interpretation), or — as of Phase 7B.6 — the
+     * whole of listDevices(), readStatus(), or testConnection(), none of
+     * which have an unsupported-action guard clause to exclude first (see
+     * backend-smart-home-provider-boundary.md §9, which deferred exactly
+     * these three methods to "later phases").
      *
      * $deviceDomain is the raw HA-style entity domain string the caller
-     * already derived (e.g. "light") — never a specific entity_id or
-     * provider_device_id. $execute performs the real call and returns its
-     * result (or throws), unchanged.
+     * already derived (e.g. "light") for a single-device call —
+     * readStatus() passes one, mirroring executeAction(). listDevices()
+     * and testConnection() have no single device (a full-catalog fetch and
+     * a pure connectivity check, respectively), so they pass null and the
+     * span carries no device_domain attribute at all — never a specific
+     * entity_id or provider_device_id either way. $execute performs the
+     * real call and returns its result (or throws), unchanged.
      *
      * @template TResult
      *
      * @param  callable(): TResult  $execute
      * @return TResult
      */
-    public function wrap(string $deviceDomain, callable $execute): mixed
+    public function wrap(?string $deviceDomain, callable $execute): mixed
     {
         $span = $this->startSpan($deviceDomain);
 
@@ -123,12 +131,14 @@ final class SmartHomeProviderTelemetry
      * Tracer::activeSpan() and never replaces the active span — additive,
      * not a takeover, exactly like SmartHomeActionTelemetry.
      */
-    private function startSpan(string $deviceDomain): Span
+    private function startSpan(?string $deviceDomain): Span
     {
         try {
-            return $this->tracer->startSpan(self::SPAN_NAME, [
-                'ixora.provider.device_domain' => SmartHomeProviderDeviceDomain::fromDomainSlug($deviceDomain)->value,
-            ]);
+            $attributes = $deviceDomain === null
+                ? []
+                : ['ixora.provider.device_domain' => SmartHomeProviderDeviceDomain::fromDomainSlug($deviceDomain)->value];
+
+            return $this->tracer->startSpan(self::SPAN_NAME, $attributes);
         } catch (Throwable) {
             return $this->inertSpan();
         }

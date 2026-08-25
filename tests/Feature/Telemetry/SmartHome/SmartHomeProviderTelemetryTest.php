@@ -54,6 +54,21 @@ test('wrap() creates exactly one smart_home.provider span tagged with the given 
         ->and($spans[0]['attributes']['ixora.provider.device_domain'])->toBe('light');
 });
 
+// Phase 7B.6 — listDevices() and testConnection() have no single device
+// domain, so wrap(null, ...) must create the span with no custom
+// attribute at all, instead of a synthetic domain value.
+test('wrap() with a null domain creates a smart_home.provider span with no device_domain attribute', function () {
+    $recorder = fakeSmartHomeProviderTelemetry();
+    $telemetry = app(SmartHomeProviderTelemetry::class);
+
+    $telemetry->wrap(null, fn () => 'provider-result');
+
+    $spans = smartHomeProviderSpanCalls($recorder);
+
+    expect($spans)->toHaveCount(1)
+        ->and($spans[0]['attributes'])->toBe([]);
+});
+
 test('wrap() normalizes an unrecognized domain slug to other', function () {
     $recorder = fakeSmartHomeProviderTelemetry();
     $telemetry = app(SmartHomeProviderTelemetry::class);
