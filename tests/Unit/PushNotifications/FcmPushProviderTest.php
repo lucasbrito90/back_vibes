@@ -8,6 +8,7 @@ use App\PushNotifications\DTOs\PushResult;
 use App\PushNotifications\Exceptions\FcmAuthenticationException;
 use App\PushNotifications\Exceptions\FcmConfigurationException;
 use App\PushNotifications\Providers\FcmPushProvider;
+use App\Telemetry\PushNotifications\PushProviderTelemetry;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -63,6 +64,7 @@ function fcmProvider(array|string|null $credentials = 'default'): FcmPushProvide
 {
     return new FcmPushProvider(
         credentials: $credentials === 'default' ? fcmServiceAccount() : $credentials,
+        providerTelemetry: app(PushProviderTelemetry::class),
         projectId: FCM_PROJECT_ID,
         scope: 'https://www.googleapis.com/auth/firebase.messaging',
         httpTimeout: 5,

@@ -53,63 +53,75 @@ final class HomeAssistantAdapter implements ProviderAdapter
 
     public function listDevices(ProviderConnection $connection): array
     {
-        try {
-            $response = $this->client($connection)->get($this->baseUrl($connection).'/api/states');
-        } catch (ConnectionException) {
-            throw ProviderConnectionException::unreachable($this->providerSlug());
-        }
-
-        if (! $response->successful()) {
-            throw ProviderConnectionException::badStatus($this->providerSlug(), $response->status());
-        }
-
-        $devices = [];
-
-        foreach ((array) $response->json() as $state) {
-            if (! is_array($state)) {
-                continue;
+        // Business Telemetry boundary (Phase 7B.6): the whole method is
+        // Provider-owned work — there is no per-device guard clause to
+        // exclude first (unlike executeAction()'s unsupported-action
+        // check), and no single device domain applies to a full-catalog
+        // fetch, so the span carries no device_domain attribute.
+        return $this->providerTelemetry->wrap(null, function () use ($connection) {
+            try {
+                $response = $this->client($connection)->get($this->baseUrl($connection).'/api/states');
+            } catch (ConnectionException) {
+                throw ProviderConnectionException::unreachable($this->providerSlug());
             }
 
-            $entityId = $state['entity_id'] ?? null;
-
-            if (! is_string($entityId) || ! str_contains($entityId, '.')) {
-                continue;
+            if (! $response->successful()) {
+                throw ProviderConnectionException::badStatus($this->providerSlug(), $response->status());
             }
 
-            $domain = $this->domainFor($entityId);
+            $devices = [];
 
-            if (! in_array($domain, self::ACTIONABLE_DOMAINS, true)) {
-                continue;
+            foreach ((array) $response->json() as $state) {
+                if (! is_array($state)) {
+                    continue;
+                }
+
+                $entityId = $state['entity_id'] ?? null;
+
+                if (! is_string($entityId) || ! str_contains($entityId, '.')) {
+                    continue;
+                }
+
+                $domain = $this->domainFor($entityId);
+
+                if (! in_array($domain, self::ACTIONABLE_DOMAINS, true)) {
+                    continue;
+                }
+
+                $devices[] = $this->mapDevice($entityId, $domain, $state);
             }
 
-            $devices[] = $this->mapDevice($entityId, $domain, $state);
-        }
-
-        return $devices;
+            return $devices;
+        });
     }
 
     public function readStatus(ProviderConnection $connection, string $deviceId): DeviceStatusResult
     {
-        try {
-            $response = $this->client($connection)->get($this->baseUrl($connection)."/api/states/{$deviceId}");
-        } catch (ConnectionException) {
-            return $this->unknownStatus($deviceId);
-        }
+        // Business Telemetry boundary (Phase 7B.6): mirrors executeAction()
+        // — a single device, so the span carries the same device_domain
+        // attribute derived the same way.
+        return $this->providerTelemetry->wrap($this->domainFor($deviceId), function () use ($connection, $deviceId) {
+            try {
+                $response = $this->client($connection)->get($this->baseUrl($connection)."/api/states/{$deviceId}");
+            } catch (ConnectionException) {
+                return $this->unknownStatus($deviceId);
+            }
 
-        if (! $response->successful()) {
-            return $this->unknownStatus($deviceId);
-        }
+            if (! $response->successful()) {
+                return $this->unknownStatus($deviceId);
+            }
 
-        $data = (array) $response->json();
-        $rawState = isset($data['state']) ? (string) $data['state'] : null;
+            $data = (array) $response->json();
+            $rawState = isset($data['state']) ? (string) $data['state'] : null;
 
-        return new DeviceStatusResult(
-            provider_device_id: isset($data['entity_id']) ? (string) $data['entity_id'] : $deviceId,
-            status: $this->mapStatus($rawState),
-            raw_state: $rawState,
-            attributes: isset($data['attributes']) && is_array($data['attributes']) ? $data['attributes'] : [],
-            last_changed: isset($data['last_changed']) ? (string) $data['last_changed'] : null,
-        );
+            return new DeviceStatusResult(
+                provider_device_id: isset($data['entity_id']) ? (string) $data['entity_id'] : $deviceId,
+                status: $this->mapStatus($rawState),
+                raw_state: $rawState,
+                attributes: isset($data['attributes']) && is_array($data['attributes']) ? $data['attributes'] : [],
+                last_changed: isset($data['last_changed']) ? (string) $data['last_changed'] : null,
+            );
+        });
     }
 
     public function executeAction(
@@ -160,34 +172,39 @@ final class HomeAssistantAdapter implements ProviderAdapter
 
     public function testConnection(ProviderConnection $connection): ConnectionHealth
     {
-        $start = microtime(true);
+        // Business Telemetry boundary (Phase 7B.6): a pure connectivity
+        // check with no device involved at all, so the span carries no
+        // device_domain attribute — same reasoning as listDevices().
+        return $this->providerTelemetry->wrap(null, function () use ($connection) {
+            $start = microtime(true);
 
-        try {
-            $response = $this->client($connection)->get($this->baseUrl($connection).'/api/');
-        } catch (ConnectionException) {
+            try {
+                $response = $this->client($connection)->get($this->baseUrl($connection).'/api/');
+            } catch (ConnectionException) {
+                return new ConnectionHealth(
+                    reachable: false,
+                    status_code: null,
+                    latency_ms: $this->elapsedMs($start),
+                    error_message: 'Provider connection failed.',
+                );
+            }
+
+            if ($response->successful()) {
+                return new ConnectionHealth(
+                    reachable: true,
+                    status_code: $response->status(),
+                    latency_ms: $this->elapsedMs($start),
+                    error_message: null,
+                );
+            }
+
             return new ConnectionHealth(
                 reachable: false,
-                status_code: null,
-                latency_ms: $this->elapsedMs($start),
-                error_message: 'Provider connection failed.',
-            );
-        }
-
-        if ($response->successful()) {
-            return new ConnectionHealth(
-                reachable: true,
                 status_code: $response->status(),
                 latency_ms: $this->elapsedMs($start),
-                error_message: null,
+                error_message: 'Provider returned status '.$response->status().'.',
             );
-        }
-
-        return new ConnectionHealth(
-            reachable: false,
-            status_code: $response->status(),
-            latency_ms: $this->elapsedMs($start),
-            error_message: 'Provider returned status '.$response->status().'.',
-        );
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────

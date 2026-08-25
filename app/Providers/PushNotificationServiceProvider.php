@@ -9,6 +9,7 @@ use App\PushNotifications\Providers\FcmPushProvider;
 use App\PushNotifications\Providers\NoopPushProvider;
 use App\PushNotifications\PushProviderResolver;
 use App\PushNotifications\Services\PushNotificationEvents;
+use App\Telemetry\PushNotifications\PushProviderTelemetry;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 
@@ -34,6 +35,7 @@ final class PushNotificationServiceProvider extends ServiceProvider
 
             return new FcmPushProvider(
                 credentials: $credentials,
+                providerTelemetry: $app->make(PushProviderTelemetry::class),
                 projectId: (string) ($config['project_id'] ?? ''),
                 scope: (string) ($config['scope'] ?? 'https://www.googleapis.com/auth/firebase.messaging'),
                 httpTimeout: (int) ($config['http_timeout'] ?? 10),

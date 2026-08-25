@@ -20,6 +20,7 @@ use App\Telemetry\Logging\TraceCorrelationLogTap;
 use App\Telemetry\Noop\NoopTelemetryManager;
 use App\Telemetry\OpenTelemetry\OpenTelemetryManager;
 use App\Telemetry\PushNotifications\PushNotificationTelemetry;
+use App\Telemetry\PushNotifications\PushProviderTelemetry;
 use App\Telemetry\Queue\QueueExecutionTelemetry;
 use App\Telemetry\Queue\QueueJobNormalizer;
 use App\Telemetry\Scheduler\SchedulerEventNormalizer;
@@ -173,6 +174,12 @@ final class TelemetryServiceProvider extends ServiceProvider
                 meter: $app->make(Meter::class),
                 environment: (string) $config->get('telemetry.environment', 'development'),
                 serviceName: (string) $config->get('telemetry.service_name', 'back_vibes-api'),
+            );
+        });
+
+        $this->app->singleton(PushProviderTelemetry::class, function (Application $app) {
+            return new PushProviderTelemetry(
+                tracer: $app->make(Tracer::class),
             );
         });
     }
