@@ -24,10 +24,14 @@ use Illuminate\Support\Facades\Route;
 // Public — no authentication required.
 Route::get('/health', [HealthController::class, 'index']);
 
-Route::post('/auth/firebase', [FirebaseAuthController::class, 'store']);
-Route::post('/auth/sync', FirebaseUserSyncController::class);
+// Authentication endpoints are public but rate-limited to block brute-force.
+// See AppServiceProvider::configureRateLimiting() for the per-IP limit and justification.
+Route::middleware('throttle:auth')->group(function () {
+    Route::post('/auth/firebase', [FirebaseAuthController::class, 'store']);
+    Route::post('/auth/sync', FirebaseUserSyncController::class);
+});
 
-Route::middleware('firebase.auth')->group(function () {
+Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::post('admin/access-requests', [AdminAccessRequestController::class, 'store']);
 
     Route::apiResource('vibes', VibeController::class);
@@ -96,14 +100,14 @@ Route::middleware('firebase.auth')->group(function () {
 });
 
 // Smoke route for admin middleware (used by tests; harmless in other envs).
-Route::middleware(['firebase.auth', 'admin.approved'])->get('__admin_gate', fn () => response()->json(['data' => ['ok' => true]]));
+Route::middleware(['firebase.auth', 'throttle:api', 'admin.approved'])->get('__admin_gate', fn () => response()->json(['data' => ['ok' => true]]));
 
 if (! App::environment('production')) {
     /*
      | Authenticated Laravel user QA snapshot (staging/local/testing only).
      | Never registered while APP_ENV=production.
      */
-    Route::middleware(['firebase.auth', 'diagnostics.non_production'])
+    Route::middleware(['firebase.auth', 'throttle:api', 'diagnostics.non_production'])
         ->get('/debug/me', DebugMeController::class)
         ->name('api.debug-me');
 }
