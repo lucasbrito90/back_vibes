@@ -6,7 +6,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Scene;
+use App\SmartHome\DTOs\SceneDispatchResult;
 use App\SmartHome\Services\SceneDispatchService;
+use App\Telemetry\SmartHome\SmartHomeDispatchEntryPoint;
+use App\Telemetry\SmartHome\SmartHomeDispatchTelemetry;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,6 +23,12 @@ use Illuminate\Http\Request;
  * - Authorises via ScenePolicy (view permission).
  * - Delegates job dispatching to SceneDispatchService.
  * - Returns a dispatch summary without calling any provider adapter.
+ *
+ * Phase 7B.4.2 wraps the dispatch() call with the `smart_home.dispatch`
+ * Business Span, tagged `ixora.dispatch.entry_point=scene_manual` — this
+ * controller is the only place that knows "scene_manual" is the right
+ * classification for this call; SceneDispatchService itself is unmodified
+ * and unaware telemetry exists (see backend-smart-home-dispatch-boundary.md).
  */
 final class SceneDispatchController extends Controller
 {
@@ -27,6 +36,7 @@ final class SceneDispatchController extends Controller
 
     public function __construct(
         private readonly SceneDispatchService $dispatchService,
+        private readonly SmartHomeDispatchTelemetry $dispatchTelemetry,
     ) {}
 
     public function __invoke(Request $request, int $scene): JsonResponse
@@ -35,7 +45,11 @@ final class SceneDispatchController extends Controller
 
         $this->authorize('view', $scene);
 
-        $result = $this->dispatchService->dispatch($scene);
+        $result = $this->dispatchTelemetry->wrap(
+            SmartHomeDispatchEntryPoint::SceneManual,
+            fn () => $this->dispatchService->dispatch($scene),
+            fn (SceneDispatchResult $result) => [$result->dispatched, $result->skipped],
+        );
 
         return response()->json([
             'data' => [

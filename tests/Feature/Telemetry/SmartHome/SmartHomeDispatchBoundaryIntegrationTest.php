@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Jobs\SmartHome\SceneActionJob;
 use App\Jobs\SmartHome\SmartHomeActionJob;
 use App\Models\Device;
 use App\Models\ProviderConnection;
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\Models\Schedule;
 use App\Models\User;
 use App\Models\Vibe;
@@ -97,6 +100,16 @@ function boundaryAction(Vibe $vibe, Device $device, int $sortOrder = 0): VibeDev
     ]);
 }
 
+function boundarySceneAction(Scene $scene, Device $device, int $sortOrder = 0): SceneAction
+{
+    return SceneAction::factory()->create([
+        'scene_id' => $scene->id,
+        'device_id' => $device->id,
+        'action_type' => ActionType::TurnOn->value,
+        'sort_order' => $sortOrder,
+    ]);
+}
+
 afterEach(function () {
     Mockery::close();
 });
@@ -177,6 +190,61 @@ test('an unauthorized manual dispatch attempt creates no dispatch span at all', 
         [],
         ['Authorization' => 'Bearer tok'],
     )->assertStatus(403);
+
+    expect(boundarySpanCalls($recorder))->toBe([]);
+    Bus::assertNothingDispatched();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Scene manual entry point — real HTTP controller
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('a manual scene execute tags the span entry_point as scene_manual', function () {
+    $recorder = fakeBoundaryTelemetry();
+    Bus::fake();
+
+    $user = boundaryUser();
+    $scene = Scene::factory()->create(['user_id' => $user->id]);
+    $device = boundaryDevice($user);
+    boundarySceneAction($scene, $device, 0);
+    boundarySceneAction($scene, $device, 1);
+
+    boundaryAuth($user);
+
+    $this->postJson(
+        "/api/scenes/{$scene->id}/execute",
+        [],
+        ['Authorization' => 'Bearer tok'],
+    )->assertOk();
+
+    $spans = boundarySpanCalls($recorder);
+
+    expect($spans)->toHaveCount(1)
+        ->and($spans[0]['attributes']['ixora.dispatch.entry_point'])->toBe('scene_manual');
+
+    $attributes = $recorder->mergedSpanAttributes();
+    expect($attributes['ixora.dispatch.dispatched_actions'])->toBe(2)
+        ->and($attributes['ixora.dispatch.skipped_actions'])->toBe(0)
+        ->and($recorder->spanEndCalls)->toBe(1);
+
+    Bus::assertDispatchedTimes(SceneActionJob::class, 2);
+});
+
+test('an unauthorized scene execute attempt creates no dispatch span at all', function () {
+    $recorder = fakeBoundaryTelemetry();
+    Bus::fake();
+
+    $owner = boundaryUser();
+    $other = boundaryUser();
+    $scene = Scene::factory()->create(['user_id' => $owner->id]);
+
+    boundaryAuth($other);
+
+    $this->postJson(
+        "/api/scenes/{$scene->id}/execute",
+        [],
+        ['Authorization' => 'Bearer tok'],
+    )->assertNotFound();
 
     expect(boundarySpanCalls($recorder))->toBe([]);
     Bus::assertNothingDispatched();

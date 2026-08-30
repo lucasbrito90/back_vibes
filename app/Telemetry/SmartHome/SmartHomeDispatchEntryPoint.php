@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace App\Telemetry\SmartHome;
 
 /**
- * Bounded classification of what triggered a
- * VibeSmartHomeDispatchService::dispatch() call.
+ * Bounded classification of what triggered a Smart Home dispatch call.
  *
  * Determined and supplied by the caller — VibeSmartHomeDispatchController
- * (Manual) or DispatchDueSchedulesCommand (Scheduled) — never by
- * SmartHomeDispatchTelemetry or VibeSmartHomeDispatchService themselves, so
+ * (Manual), SceneDispatchController (SceneManual), or
+ * DispatchDueSchedulesCommand (Scheduled) — never by
+ * SmartHomeDispatchTelemetry or the dispatch services themselves, so
  * neither the dispatch service nor this Telemetry module ever needs to know
  * what a controller or a scheduler is (Phase 7B.4.2 "Entry point"
  * requirement — see backend-smart-home-dispatch-boundary.md).
@@ -24,6 +24,7 @@ namespace App\Telemetry\SmartHome;
 enum SmartHomeDispatchEntryPoint: string
 {
     case Manual = 'manual';
+    case SceneManual = 'scene_manual';
     case Scheduled = 'scheduled';
     case Future = 'future';
 }
