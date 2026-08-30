@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PresetVibeController;
 use App\Http\Controllers\Api\ProviderConnectionController;
 use App\Http\Controllers\Api\PushTokenController;
+use App\Http\Controllers\Api\SceneController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
@@ -40,6 +41,7 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::post('provider-connections/{providerConnection}/sync', [ProviderConnectionController::class, 'sync'])
         ->name('provider-connections.sync');
     Route::apiResource('devices', DeviceController::class);
+    Route::apiResource('scenes', SceneController::class);
 
     Route::get('schedules/{schedule}/executions', [ScheduleExecutionController::class, 'index']);
     Route::post('schedules/{schedule}/executions/{occurrence_key}/ack', [ScheduleExecutionController::class, 'acknowledge'])
