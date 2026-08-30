@@ -90,6 +90,51 @@ test('wrap() tags the scheduled entry point distinctly from manual', function ()
     expect($spans[0]['attributes']['ixora.dispatch.entry_point'])->toBe('scheduled');
 });
 
+test('wrap() tags the scene_manual entry point distinctly from vibe manual', function () {
+    $recorder = fakeSmartHomeDispatchTelemetry();
+    $telemetry = app(SmartHomeDispatchTelemetry::class);
+
+    $telemetry->wrap(
+        SmartHomeDispatchEntryPoint::SceneManual,
+        fn () => 'scene-dispatch-result',
+        fn ($result) => [2, 1],
+    );
+
+    $spans = smartHomeDispatchSpanCalls($recorder);
+
+    expect($spans)->toHaveCount(1)
+        ->and($spans[0]['attributes']['ixora.dispatch.entry_point'])->toBe('scene_manual');
+
+    $attributes = $recorder->mergedSpanAttributes();
+
+    expect($attributes['ixora.dispatch.dispatched_actions'])->toBe(2)
+        ->and($attributes['ixora.dispatch.skipped_actions'])->toBe(1);
+});
+
+test('wrap() records scene_manual dispatched and skipped counts on ixora.smart_home.dispatch.total', function () {
+    $recorder = fakeSmartHomeDispatchTelemetry();
+    $telemetry = app(SmartHomeDispatchTelemetry::class);
+
+    $telemetry->wrap(
+        SmartHomeDispatchEntryPoint::SceneManual,
+        fn () => 'scene-dispatch-result',
+        fn ($result) => [2, 1],
+    );
+
+    $calls = smartHomeDispatchTotalCalls($recorder);
+
+    $dispatched = array_values(array_filter($calls, fn ($c) => $c['attributes']['outcome'] === 'dispatched'));
+    $skipped = array_values(array_filter($calls, fn ($c) => $c['attributes']['outcome'] === 'skipped'));
+
+    expect($calls)->toHaveCount(2)
+        ->and($dispatched)->toHaveCount(1)
+        ->and($dispatched[0]['amount'])->toBe(2)
+        ->and($dispatched[0]['attributes']['entry_point'])->toBe('scene_manual')
+        ->and($skipped)->toHaveCount(1)
+        ->and($skipped[0]['amount'])->toBe(1)
+        ->and($skipped[0]['attributes']['entry_point'])->toBe('scene_manual');
+});
+
 // 2. Attribute values sourced from the extractCounts callback.
 test('wrap() sets dispatched_actions and skipped_actions from the extractCounts callback', function () {
     $recorder = fakeSmartHomeDispatchTelemetry();
