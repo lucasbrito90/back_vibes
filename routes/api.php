@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PresetVibeController;
 use App\Http\Controllers\Api\ProviderConnectionController;
 use App\Http\Controllers\Api\PushTokenController;
+use App\Http\Controllers\Api\SceneActionController;
 use App\Http\Controllers\Api\SceneController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\ScheduleExecutionController;
@@ -83,6 +84,15 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::post('push-tokens/refresh', [PushTokenController::class, 'refresh']);
     Route::post('push-tokens', [PushTokenController::class, 'store']);
     Route::delete('push-tokens/{pushToken}', [PushTokenController::class, 'destroy']);
+
+    Route::prefix('scenes/{scene}')->group(function () {
+        Route::get('actions', [SceneActionController::class, 'index']);
+        Route::post('actions', [SceneActionController::class, 'store']);
+        // reorder MUST be registered before the {action} wildcard routes.
+        Route::post('actions/reorder', [SceneActionController::class, 'reorder']);
+        Route::patch('actions/{action}', [SceneActionController::class, 'update']);
+        Route::delete('actions/{action}', [SceneActionController::class, 'destroy']);
+    });
 
     Route::prefix('vibes/{vibe}')->group(function () {
         Route::get('sounds', [VibeSoundController::class, 'index']);
