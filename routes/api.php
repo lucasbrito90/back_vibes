@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\ProviderConnectionController;
 use App\Http\Controllers\Api\PushTokenController;
 use App\Http\Controllers\Api\SceneActionController;
 use App\Http\Controllers\Api\SceneController;
+use App\Http\Controllers\Api\SceneDispatchController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
@@ -86,6 +87,8 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::delete('push-tokens/{pushToken}', [PushTokenController::class, 'destroy']);
 
     Route::prefix('scenes/{scene}')->group(function () {
+        Route::post('execute', SceneDispatchController::class);
+
         Route::get('actions', [SceneActionController::class, 'index']);
         Route::post('actions', [SceneActionController::class, 'store']);
         // reorder MUST be registered before the {action} wildcard routes.
