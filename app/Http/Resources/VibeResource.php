@@ -25,6 +25,7 @@ class VibeResource extends JsonResource
             'player_background_url' => $this->player_background_url ?? $thumb,
             'artwork_url' => $this->artwork_url ?? $thumb,
             'is_active' => $this->is_active,
+            'scene_id' => $this->scene_id,
             'sounds_count' => (int) ($this->sounds_count ?? 0),
             'sounds' => VibeSoundResource::collection($this->whenLoaded('sounds')),
             'active_schedules_count' => (int) ($this->active_schedules_count ?? 0),
