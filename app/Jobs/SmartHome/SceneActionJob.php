@@ -24,8 +24,10 @@ use Throwable;
 /**
  * Queued job that executes a single Scene Smart Home action against its provider.
  *
- * Parallel to SmartHomeActionJob (v1.2.0 vibe path) but scoped to SceneAction.
- * Deliberately not generalised — see ADR-023 per-action job isolation.
+ * One job per action — see ADR-023 per-action job isolation. Since v1.3.0 this
+ * is the only Smart Home action job: Vibe dispatch resolves its actions from
+ * the Scene linked via vibes.scene_id, so the vibe-scoped predecessor
+ * (SmartHomeActionJob) and its VibeDeviceAction table were removed.
  *
  * Push notification on failure uses scene_id (not vibe_id) via
  * SmartHomeSceneActionFailedNotification — a Scene may be shared by multiple

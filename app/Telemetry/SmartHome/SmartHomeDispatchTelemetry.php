@@ -40,12 +40,12 @@ use Throwable;
  *   back as the consumer span's parent context in Worker::process().
  *   Tracer::startSpan() activates the span it creates
  *   (App\Telemetry\OpenTelemetry\OpenTelemetryTracer::startSpan() calls
- *   SpanInterface::activate()) — so every SmartHomeActionJob::dispatch()
+ *   SpanInterface::activate()) — so every SceneActionJob::dispatch()
  *   call made *while* the `smart_home.dispatch` span is the active span
  *   automatically has that trace context injected as its parent, with zero
  *   custom propagation code. This is why this class implements no
  *   correlation ID, no custom context object, and makes no change to
- *   SmartHomeActionJob — duplicating that propagation was the one thing
+ *   SceneActionJob — duplicating that propagation was the one thing
  *   Phase 7B.4.2 was explicitly forbidden from doing.
  * - The queue driver in production is `database` (async) — dispatch() only
  *   enqueues a row; the span (ended immediately after dispatch() returns)
@@ -61,7 +61,7 @@ use Throwable;
  * call even when the Tracer is broken or telemetry is disabled —
  * startSpan() falls back to an inert Span, and every other telemetry
  * operation swallows Throwable. Business behavior (loading actions,
- * ordering, enqueueing SmartHomeActionJob, counting, returning
+ * ordering, enqueueing SceneActionJob, counting, returning
  * SmartHomeDispatchResult, and any exception dispatch() itself raises) is
  * never affected — the exception, if any, is always rethrown unchanged.
  *

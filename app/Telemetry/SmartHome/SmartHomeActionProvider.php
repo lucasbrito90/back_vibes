@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace App\Telemetry\SmartHome;
 
 /**
- * Bounded classification of which provider a SmartHomeActionJob execution
+ * Bounded classification of which provider a SceneActionJob execution
  * targets, for the `ixora.action.provider` span attribute only.
  *
  * Deliberately a Telemetry-layer enum, not a re-export of
  * App\SmartHome\ProviderType — this module never imports that domain enum
  * (Dependency Rule: Telemetry depends only on Telemetry Contracts). The
- * caller (SmartHomeActionJob) passes the raw provider slug string it already
+ * caller (SceneActionJob) passes the raw provider slug string it already
  * has (`$connection->provider`) to fromProviderSlug(), which normalizes any
  * value this Telemetry layer does not explicitly know about to the reserved
  * Future case — matching the enum-reservation convention already used

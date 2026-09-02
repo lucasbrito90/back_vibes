@@ -199,7 +199,7 @@ test('wrap() ends the dispatch span before returning — proving no queue/job ex
     );
 
     // The dispatch callable (standing in for VibeSmartHomeDispatchService::
-    // dispatch(), which only enqueues SmartHomeActionJob and never executes
+    // dispatch(), which only enqueues SceneActionJob and never executes
     // it inline for the production `database` queue driver) runs strictly
     // *before* end() — end() is only reached once wrap() itself returns.
     expect($spanEndedBeforeCallableRan)->toBeTrue()

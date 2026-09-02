@@ -14,7 +14,7 @@ use Throwable;
 /**
  * Business Telemetry for the Smart Home Action Execution boundary
  * (Phase 7B.4.3). Owns exactly one span, `smart_home.action`, wrapping the
- * business-execution portion of App\Jobs\SmartHome\SmartHomeActionJob::
+ * business-execution portion of App\Jobs\SmartHome\SceneActionJob::
  * handle() — see backend-smart-home-action-execution.md §"Boundary
  * discovery" for the full architecture review this class's design depends
  * on. Summary of that review's conclusions:
@@ -26,7 +26,7 @@ use Throwable;
  *   for any of them, and none of them corresponds to a value in this
  *   phase's allowed `ixora.action.outcome` set (success/failure/
  *   unsupported). This class is therefore never invoked at all for those
- *   three paths — SmartHomeActionJob::handle() calls wrap() only once it
+ *   three paths — SceneActionJob::handle() calls wrap() only once it
  *   already holds a resolved, non-null action + device + provider
  *   connection, exactly mirroring the precedent Phase 7B.4.2 set (no
  *   `smart_home.dispatch` span for a request that fails authorization or
@@ -68,9 +68,9 @@ use Throwable;
  * - Exactly one ProviderAdapter::executeAction() call happens per wrap()
  *   call — there is no loop and no internal retry inside the wrapped
  *   segment, confirmed by reading HomeAssistantAdapter::executeAction() and
- *   SmartHomeActionJob::handle() in full. "Provider execution" and
+ *   SceneActionJob::handle() in full. "Provider execution" and
  *   "business action execution" are therefore 1:1 for every attempt today.
- * - SmartHomeActionJob::handle() never lets any exception escape it — both
+ * - SceneActionJob::handle() never lets any exception escape it — both
  *   its own UnsupportedSmartHomeActionException catch block and its
  *   generic Throwable catch-all log and swallow, unconditionally. This
  *   class's own Failure Model (recordException()/setError()/end()/rethrow
@@ -158,7 +158,7 @@ final class SmartHomeActionTelemetry
 
     /**
      * Wraps the provider-resolution + provider-execution segment of one
-     * SmartHomeActionJob::handle() invocation.
+     * SceneActionJob::handle() invocation.
      *
      * $execute performs the real call (provider resolution + executeAction())
      * and returns its result. $classifyResult maps a successful result to an
