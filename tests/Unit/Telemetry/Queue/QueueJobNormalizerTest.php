@@ -9,9 +9,9 @@ afterEach(function () {
 
 test('normalizes a resolvable job class to its basename', function () {
     $job = Mockery::mock(Job::class);
-    $job->shouldReceive('resolveQueuedJobClass')->andReturn('App\\Jobs\\SmartHome\\SmartHomeActionJob');
+    $job->shouldReceive('resolveQueuedJobClass')->andReturn('App\\Jobs\\SmartHome\\SceneActionJob');
 
-    expect((new QueueJobNormalizer)->normalize($job))->toBe('SmartHomeActionJob');
+    expect((new QueueJobNormalizer)->normalize($job))->toBe('SceneActionJob');
 });
 
 test('falls back to a bounded value when resolveQueuedJobClass() throws', function () {

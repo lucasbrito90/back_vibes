@@ -49,11 +49,6 @@ final class Vibe extends Model
             ->orderByPivot('sort_order');
     }
 
-    public function deviceActions(): HasMany
-    {
-        return $this->hasMany(VibeDeviceAction::class)->orderBy('sort_order');
-    }
-
     public function schedules(): HasMany
     {
         return $this->hasMany(Schedule::class);

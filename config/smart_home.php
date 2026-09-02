@@ -32,7 +32,7 @@ return [
     | Queue Configuration
     |--------------------------------------------------------------------------
     |
-    | SmartHomeActionJob runs on the "smart-home" named queue so that device
+    | SceneActionJob runs on the "smart-home" named queue so that device
     | action execution can be monitored and throttled independently from the
     | default Laravel queue.
     |
@@ -41,9 +41,9 @@ return [
     | is required (see ADR-016).
     |
     | job_timeout   — seconds before the worker kills a stalled job (matches
-    |                 SmartHomeActionJob::$timeout = 30).
+    |                 SceneActionJob::$timeout = 30).
     | job_tries     — max attempts before moving the job to failed_jobs
-    |                 (matches SmartHomeActionJob::$tries = 3).
+    |                 (matches SceneActionJob::$tries = 3).
     | queue_name    — named queue; configure the worker with
     |                 --queue=smart-home,default to ensure both queues drain.
     |

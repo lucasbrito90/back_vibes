@@ -11,7 +11,6 @@ use App\Models\Schedule;
 use App\Models\ScheduleExecution;
 use App\Models\User;
 use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use App\PushNotifications\DTOs\NotificationPayload;
 use App\PushNotifications\Services\PushNotificationEvents;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -85,39 +84,6 @@ test('notifyScheduleExecutionFailed dispatches a job with the correct payload', 
         ->and($payload->data['type'])->toBe('schedule_execution_failed')
         ->and($payload->data['schedule_execution_id'])->toBe((string) $execution->id)
         ->and($payload->data['schedule_id'])->toBe((string) $schedule->id);
-
-    assertAllStringData($payload);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// notifySmartHomeActionFailed
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('notifySmartHomeActionFailed dispatches a job with the correct payload', function () {
-    Bus::fake();
-
-    $user = User::factory()->create();
-    $vibe = Vibe::factory()->for($user)->create();
-    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
-    $device = Device::factory()->create([
-        'user_id' => $user->id,
-        'provider_connection_id' => $connection->id,
-    ]);
-    $action = VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
-        'device_id' => $device->id,
-        'action_type' => 'turn_on',
-    ]);
-
-    pneEvents()->notifySmartHomeActionFailed($user, $action);
-
-    $payload = dispatchedPayload();
-    expect($payload->title)->toBe('Device action failed')
-        ->and($payload->body)->toBe('A Smart Home action could not be completed.')
-        ->and($payload->data['type'])->toBe('smart_home_action_failed')
-        ->and($payload->data['device_id'])->toBe((string) $device->id)
-        ->and($payload->data['vibe_id'])->toBe((string) $vibe->id)
-        ->and($payload->data['action_type'])->toBe('turn_on');
 
     assertAllStringData($payload);
 });

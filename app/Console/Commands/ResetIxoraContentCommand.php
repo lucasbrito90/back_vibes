@@ -24,7 +24,6 @@ final class ResetIxoraContentCommand extends Command
         'preset_vibe_sounds',
         'schedule_executions',
         'schedules',
-        'vibe_device_actions',
         'vibes',
         'preset_vibes',
         'cover_bundles',

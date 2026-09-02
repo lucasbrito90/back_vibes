@@ -19,8 +19,8 @@ use Tests\Support\Telemetry\TelemetryRecorder;
  * Phase 7B.4.3 — Smart Home Action Execution boundary. Exercises
  * App\Telemetry\SmartHome\SmartHomeActionTelemetry directly (the same way
  * SmartHomeDispatchTelemetryTest.php exercises SmartHomeDispatchTelemetry),
- * plus the real wiring into SmartHomeActionJob::handle() in
- * tests/Feature/SmartHome/SmartHomeActionJobTest.php (unmodified business
+ * plus the real wiring into SceneActionJob::handle() in
+ * tests/Feature/SmartHome/SceneActionJobTest.php (unmodified business
  * assertions in that file already indirectly prove fail-open once this
  * phase wires the real singleton in) and the dedicated boundary-integration
  * test in SmartHomeActionBoundaryIntegrationTest.php.
