@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
-use App\Jobs\SmartHome\SmartHomeActionJob;
+use App\Jobs\SmartHome\SceneActionJob;
 use App\Models\Device;
 use App\Models\ProviderConnection;
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\Models\User;
 use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use App\SmartHome\ActionType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
@@ -51,9 +52,17 @@ function shDispatchUser(?string $uid = null): User
     return User::factory()->create(['firebase_uid' => $uid ?? 'fb-dispatch-'.uniqid()]);
 }
 
-function shDispatchVibe(User $user): Vibe
+function shDispatchScene(User $user): Scene
 {
-    return Vibe::factory()->create(['user_id' => $user->id]);
+    return Scene::factory()->create(['user_id' => $user->id]);
+}
+
+function shDispatchVibe(User $user, ?Scene $scene = null): Vibe
+{
+    return Vibe::factory()->create([
+        'user_id' => $user->id,
+        'scene_id' => $scene?->id,
+    ]);
 }
 
 function shDispatchDevice(User $user): Device
@@ -66,10 +75,10 @@ function shDispatchDevice(User $user): Device
     ]);
 }
 
-function shDispatchAction(Vibe $vibe, Device $device, int $sortOrder = 0): VibeDeviceAction
+function shDispatchSceneAction(Scene $scene, Device $device, int $sortOrder = 0): SceneAction
 {
-    return VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
+    return SceneAction::factory()->create([
+        'scene_id' => $scene->id,
         'device_id' => $device->id,
         'action_type' => ActionType::TurnOn->value,
         'sort_order' => $sortOrder,
@@ -97,7 +106,8 @@ it('returns 403 when vibe belongs to another user', function () {
 
     $owner = shDispatchUser();
     $other = shDispatchUser();
-    $vibe = shDispatchVibe($owner);
+    $scene = shDispatchScene($owner);
+    $vibe = shDispatchVibe($owner, $scene);
 
     shDispatchAuth($other);
 
@@ -112,17 +122,18 @@ it('returns 403 when vibe belongs to another user', function () {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Happy path — owner with actions
+// Happy path — owner with linked scene actions
 // ─────────────────────────────────────────────────────────────────────────────
 
 it('owner can dispatch and receives summary', function () {
     Bus::fake();
 
     $user = shDispatchUser();
-    $vibe = shDispatchVibe($user);
+    $scene = shDispatchScene($user);
+    $vibe = shDispatchVibe($user, $scene);
     $device = shDispatchDevice($user);
-    $a1 = shDispatchAction($vibe, $device, 0);
-    $a2 = shDispatchAction($vibe, $device, 1);
+    $a1 = shDispatchSceneAction($scene, $device, 0);
+    $a2 = shDispatchSceneAction($scene, $device, 1);
 
     shDispatchAuth($user);
 
@@ -141,14 +152,15 @@ it('owner can dispatch and receives summary', function () {
         ->and($response->json('data.action_ids'))->toBe([$a1->id, $a2->id]);
 });
 
-it('dispatches one job per action', function () {
+it('dispatches one job per scene action', function () {
     Bus::fake();
 
     $user = shDispatchUser();
-    $vibe = shDispatchVibe($user);
+    $scene = shDispatchScene($user);
+    $vibe = shDispatchVibe($user, $scene);
     $device = shDispatchDevice($user);
-    shDispatchAction($vibe, $device, 0);
-    shDispatchAction($vibe, $device, 1);
+    shDispatchSceneAction($scene, $device, 0);
+    shDispatchSceneAction($scene, $device, 1);
 
     shDispatchAuth($user);
 
@@ -158,18 +170,19 @@ it('dispatches one job per action', function () {
         shDispatchHeaders(),
     )->assertOk();
 
-    Bus::assertDispatchedTimes(SmartHomeActionJob::class, 2);
+    Bus::assertDispatchedTimes(SceneActionJob::class, 2);
 });
 
 it('dispatches jobs in sort_order', function () {
     Bus::fake();
 
     $user = shDispatchUser();
-    $vibe = shDispatchVibe($user);
+    $scene = shDispatchScene($user);
+    $vibe = shDispatchVibe($user, $scene);
     $device = shDispatchDevice($user);
-    $a2 = shDispatchAction($vibe, $device, 2);
-    $a0 = shDispatchAction($vibe, $device, 0);
-    $a1 = shDispatchAction($vibe, $device, 1);
+    $a2 = shDispatchSceneAction($scene, $device, 2);
+    $a0 = shDispatchSceneAction($scene, $device, 0);
+    $a1 = shDispatchSceneAction($scene, $device, 1);
 
     shDispatchAuth($user);
 
@@ -186,9 +199,10 @@ it('response summary includes action IDs', function () {
     Bus::fake();
 
     $user = shDispatchUser();
-    $vibe = shDispatchVibe($user);
+    $scene = shDispatchScene($user);
+    $vibe = shDispatchVibe($user, $scene);
     $device = shDispatchDevice($user);
-    $action = shDispatchAction($vibe, $device, 0);
+    $action = shDispatchSceneAction($scene, $device, 0);
 
     shDispatchAuth($user);
 
@@ -205,7 +219,7 @@ it('response summary includes action IDs', function () {
 // Edge cases
 // ─────────────────────────────────────────────────────────────────────────────
 
-it('returns dispatched 0 when vibe has no device actions', function () {
+it('returns dispatched 0 when vibe has no linked scene', function () {
     Bus::fake();
 
     $user = shDispatchUser();
@@ -234,9 +248,10 @@ it('does not make any synchronous HTTP request to Home Assistant during dispatch
     Bus::fake();
 
     $user = shDispatchUser();
-    $vibe = shDispatchVibe($user);
+    $scene = shDispatchScene($user);
+    $vibe = shDispatchVibe($user, $scene);
     $device = shDispatchDevice($user);
-    shDispatchAction($vibe, $device);
+    shDispatchSceneAction($scene, $device);
 
     shDispatchAuth($user);
 
@@ -246,8 +261,6 @@ it('does not make any synchronous HTTP request to Home Assistant during dispatch
         shDispatchHeaders(),
     )->assertOk();
 
-    // Phase 9: HA execution happens inside the queued SmartHomeActionJob, never
-    // inline in the play/dispatch request. The endpoint must not hit HA itself.
     Http::assertNothingSent();
 });
 
@@ -256,9 +269,10 @@ it('only queues the job and does not execute the provider adapter inline', funct
     Http::fake();
 
     $user = shDispatchUser();
-    $vibe = shDispatchVibe($user);
+    $scene = shDispatchScene($user);
+    $vibe = shDispatchVibe($user, $scene);
     $device = shDispatchDevice($user);
-    shDispatchAction($vibe, $device);
+    shDispatchSceneAction($scene, $device);
 
     shDispatchAuth($user);
 
@@ -268,8 +282,6 @@ it('only queues the job and does not execute the provider adapter inline', funct
         shDispatchHeaders(),
     )->assertOk();
 
-    // Bus::fake() keeps the job on the queue (never run inline), so no adapter
-    // HTTP can occur during the request — the play path stays fire-and-forget.
-    Bus::assertDispatched(SmartHomeActionJob::class);
+    Bus::assertDispatched(SceneActionJob::class);
     Http::assertNothingSent();
 });

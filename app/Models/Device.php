@@ -9,7 +9,6 @@ use Database\Factories\DeviceFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -63,17 +62,6 @@ final class Device extends Model
     public function providerConnection(): BelongsTo
     {
         return $this->belongsTo(ProviderConnection::class);
-    }
-
-    public function vibeActions(): HasMany
-    {
-        return $this->hasMany(VibeDeviceAction::class);
-    }
-
-    /** Alias for vibeActions() — prefer this name in new code. */
-    public function vibeDeviceActions(): HasMany
-    {
-        return $this->vibeActions();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

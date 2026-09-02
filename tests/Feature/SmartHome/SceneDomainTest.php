@@ -6,6 +6,7 @@ use App\Models\Device;
 use App\Models\Scene;
 use App\Models\SceneAction;
 use App\Models\User;
+use App\SmartHome\ActionType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
@@ -91,6 +92,18 @@ test('non-owner cannot view update or delete another users scene', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 // Scene model — relationships
 // ─────────────────────────────────────────────────────────────────────────────
+
+test('SceneActionFactory turnOn state sets action_type turn_on', function () {
+    expect(SceneAction::factory()->turnOn()->create()->action_type)->toBe(ActionType::TurnOn->value);
+});
+
+test('SceneActionFactory turnOff state sets action_type turn_off', function () {
+    expect(SceneAction::factory()->turnOff()->create()->action_type)->toBe(ActionType::TurnOff->value);
+});
+
+test('SceneActionFactory toggle state sets action_type toggle', function () {
+    expect(SceneAction::factory()->toggle()->create()->action_type)->toBe(ActionType::Toggle->value);
+});
 
 test('scene actions relationship returns actions ordered by sort_order', function () {
     $scene = Scene::factory()->create();

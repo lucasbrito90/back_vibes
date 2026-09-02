@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 
-use App\Jobs\SmartHome\SmartHomeActionJob;
+use App\Jobs\SmartHome\SceneActionJob;
 use App\Models\Device;
 use App\Models\ProviderConnection;
-use App\Models\VibeDeviceAction;
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\PushNotifications\Services\PushNotificationEvents;
 use App\SmartHome\ProviderAdapterResolver;
 use App\Telemetry\Context\TraceContext;
@@ -23,7 +24,7 @@ uses(RefreshDatabase::class);
 
 /**
  * Phase 7B.4.3 — proves the `smart_home.action` Business Span is really
- * wired into the real SmartHomeActionJob::handle(), not just the isolated
+ * wired into the real SceneActionJob::handle(), not just the isolated
  * SmartHomeActionTelemetry unit exercised in SmartHomeActionTelemetryTest.php.
  *
  * Mirrors SmartHomeDispatchBoundaryIntegrationTest.php's structure for the
@@ -57,7 +58,7 @@ function actionBoundarySpanCalls(TelemetryRecorder $recorder): array
  * @param  array<string, mixed>  $deviceOverrides
  * @param  array<string, mixed>  $actionOverrides
  */
-function actionBoundaryAction(array $connOverrides = [], array $deviceOverrides = [], array $actionOverrides = []): VibeDeviceAction
+function actionBoundaryAction(array $connOverrides = [], array $deviceOverrides = [], array $actionOverrides = []): SceneAction
 {
     $connection = ProviderConnection::factory()->create(array_merge([
         'config' => ['base_url' => ACTION_BOUNDARY_HA_BASE],
@@ -70,17 +71,20 @@ function actionBoundaryAction(array $connOverrides = [], array $deviceOverrides 
         'provider_device_id' => 'light.boundary_test',
     ], $deviceOverrides));
 
-    return VibeDeviceAction::factory()->create(array_merge([
+    $scene = Scene::factory()->create(['user_id' => $connection->user_id]);
+
+    return SceneAction::factory()->create(array_merge([
+        'scene_id' => $scene->id,
         'device_id' => $device->id,
         'action_type' => 'turn_on',
         'parameters' => null,
     ], $actionOverrides));
 }
 
-function runActionBoundaryJob(VibeDeviceAction|int $action): void
+function runActionBoundaryJob(SceneAction|int $action): void
 {
-    $id = $action instanceof VibeDeviceAction ? $action->id : $action;
-    (new SmartHomeActionJob($id))->handle(
+    $id = $action instanceof SceneAction ? $action->id : $action;
+    (new SceneActionJob($id))->handle(
         app(ProviderAdapterResolver::class),
         app(PushNotificationEvents::class),
         app(SmartHomeActionTelemetry::class),

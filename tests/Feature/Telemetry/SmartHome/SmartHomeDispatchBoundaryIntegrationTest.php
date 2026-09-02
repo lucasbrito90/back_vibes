@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use App\Jobs\SmartHome\SceneActionJob;
-use App\Jobs\SmartHome\SmartHomeActionJob;
 use App\Models\Device;
 use App\Models\ProviderConnection;
 use App\Models\Scene;
@@ -11,7 +10,6 @@ use App\Models\SceneAction;
 use App\Models\Schedule;
 use App\Models\User;
 use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use App\Services\Scheduling\RecurrenceType;
 use App\SmartHome\ActionType;
 use App\Telemetry\Contracts\Tracer;
@@ -90,14 +88,17 @@ function boundaryDevice(User $user): Device
     ]);
 }
 
-function boundaryAction(Vibe $vibe, Device $device, int $sortOrder = 0): VibeDeviceAction
+function boundaryVibeWithSceneActions(User $user, int $actionCount = 1): Vibe
 {
-    return VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
-        'device_id' => $device->id,
-        'action_type' => ActionType::TurnOn->value,
-        'sort_order' => $sortOrder,
-    ]);
+    $scene = Scene::factory()->create(['user_id' => $user->id]);
+    $vibe = Vibe::factory()->create(['user_id' => $user->id, 'scene_id' => $scene->id]);
+    $device = boundaryDevice($user);
+
+    for ($i = 0; $i < $actionCount; $i++) {
+        boundarySceneAction($scene, $device, $i);
+    }
+
+    return $vibe;
 }
 
 function boundarySceneAction(Scene $scene, Device $device, int $sortOrder = 0): SceneAction
@@ -123,10 +124,7 @@ test('a manual mobile dispatch tags the span entry_point as manual', function ()
     Bus::fake();
 
     $user = boundaryUser();
-    $vibe = Vibe::factory()->create(['user_id' => $user->id]);
-    $device = boundaryDevice($user);
-    boundaryAction($vibe, $device, 0);
-    boundaryAction($vibe, $device, 1);
+    $vibe = boundaryVibeWithSceneActions($user, 2);
 
     boundaryAuth($user);
 
@@ -153,9 +151,7 @@ test('the manual dispatch span never overlaps job or provider execution', functi
     Http::fake();
 
     $user = boundaryUser();
-    $vibe = Vibe::factory()->create(['user_id' => $user->id]);
-    $device = boundaryDevice($user);
-    boundaryAction($vibe, $device);
+    $vibe = boundaryVibeWithSceneActions($user, 1);
 
     boundaryAuth($user);
 
@@ -166,12 +162,12 @@ test('the manual dispatch span never overlaps job or provider execution', functi
     )->assertOk();
 
     // The span has already ended (by the time the HTTP response was built),
-    // and — because Bus::fake() kept SmartHomeActionJob off a real
+    // and — because Bus::fake() kept SceneActionJob off a real
     // queue/worker — no provider HTTP call happened at all during the
     // request, proving the dispatch boundary cannot have included any
     // action/provider execution time.
     expect($recorder->spanEndCalls)->toBe(1);
-    Bus::assertDispatched(SmartHomeActionJob::class);
+    Bus::assertDispatched(SceneActionJob::class);
     Http::assertNothingSent();
 });
 
@@ -277,10 +273,7 @@ test('a scheduled dispatch tags the span entry_point as scheduled', function () 
     Bus::fake();
 
     $user = boundaryUser();
-    $vibe = Vibe::factory()->create(['user_id' => $user->id]);
-    $device = boundaryDevice($user);
-    boundaryAction($vibe, $device, 0);
-    boundaryAction($vibe, $device, 1);
+    $vibe = boundaryVibeWithSceneActions($user, 2);
     boundaryDueSchedule($user, $vibe);
 
     $this->artisan('schedules:dispatch-due')->assertSuccessful();
@@ -295,10 +288,10 @@ test('a scheduled dispatch tags the span entry_point as scheduled', function () 
         ->and($attributes['ixora.dispatch.skipped_actions'])->toBe(0)
         ->and($recorder->spanEndCalls)->toBe(1);
 
-    Bus::assertDispatchedTimes(SmartHomeActionJob::class, 2);
+    Bus::assertDispatchedTimes(SceneActionJob::class, 2);
 });
 
-test('a schedule with no vibe device actions creates a scheduled span with zero counts', function () {
+test('a schedule with no linked scene creates a scheduled span with zero counts', function () {
     $recorder = fakeBoundaryTelemetry();
     Bus::fake();
 
@@ -320,16 +313,11 @@ test('multiple due schedules in one command run each create their own separate d
     Bus::fake();
 
     $userA = boundaryUser();
-    $vibeA = Vibe::factory()->create(['user_id' => $userA->id]);
-    $deviceA = boundaryDevice($userA);
-    boundaryAction($vibeA, $deviceA, 0);
+    $vibeA = boundaryVibeWithSceneActions($userA, 1);
     boundaryDueSchedule($userA, $vibeA);
 
     $userB = boundaryUser();
-    $vibeB = Vibe::factory()->create(['user_id' => $userB->id]);
-    $deviceB = boundaryDevice($userB);
-    boundaryAction($vibeB, $deviceB, 0);
-    boundaryAction($vibeB, $deviceB, 1);
+    $vibeB = boundaryVibeWithSceneActions($userB, 2);
     boundaryDueSchedule($userB, $vibeB);
 
     $this->artisan('schedules:dispatch-due')->assertSuccessful();
@@ -350,9 +338,7 @@ test('a validator failure never creates a dispatch span — the boundary owns on
 
     $vibeOwner = boundaryUser();
     $scheduleOwner = boundaryUser();
-    $vibe = Vibe::factory()->create(['user_id' => $vibeOwner->id]);
-    $device = boundaryDevice($vibeOwner);
-    boundaryAction($vibe, $device, 0);
+    $vibe = boundaryVibeWithSceneActions($vibeOwner, 1);
 
     // ScheduleAutomationValidator::validate() fails ownership integrity
     // (schedule->user_id !== vibe->user_id) before dispatch() is ever

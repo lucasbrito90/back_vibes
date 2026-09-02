@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs\SmartHome;
 
 use App\Models\SceneAction;
+use App\PushNotifications\Services\PushNotificationEvents;
 use App\SmartHome\DTOs\ActionResult;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
 use App\SmartHome\ProviderAdapterResolver;
@@ -23,14 +24,14 @@ use Throwable;
 /**
  * Queued job that executes a single Scene Smart Home action against its provider.
  *
- * Parallel to SmartHomeActionJob (v1.2.0 vibe path) but scoped to SceneAction.
- * Deliberately not generalised — see ADR-023 per-action job isolation.
+ * One job per action — see ADR-023 per-action job isolation. Since v1.3.0 this
+ * is the only Smart Home action job: Vibe dispatch resolves its actions from
+ * the Scene linked via vibes.scene_id, so the vibe-scoped predecessor
+ * (SmartHomeActionJob) and its VibeDeviceAction table were removed.
  *
- * Push notification on failure is intentionally omitted in v1.3.0:
- * SmartHomeActionFailedNotification is vibe-centric (payload includes vibe_id)
- * and mobile has no scene-failure handler yet. Failures are logged via the same
- * telemetry + log path; push for scenes can be added when the client contract
- * defines a smart_home_scene_action_failed event type.
+ * Push notification on failure uses scene_id (not vibe_id) via
+ * SmartHomeSceneActionFailedNotification — a Scene may be shared by multiple
+ * Vibes or executed directly without any Vibe context.
  *
  * Queue: smart-home | Timeout: 30s | Tries: 3
  */
@@ -53,6 +54,7 @@ final class SceneActionJob implements ShouldQueue
 
     public function handle(
         ProviderAdapterResolver $resolver,
+        PushNotificationEvents $pushEvents,
         SmartHomeActionTelemetry $actionTelemetry,
     ): void {
         $action = SceneAction::with(['device', 'device.providerConnection', 'device.user'])
@@ -122,6 +124,10 @@ final class SceneActionJob implements ShouldQueue
             );
 
             $this->logResult($context, $result);
+
+            if (! $result->success) {
+                $this->notifyActionFailed($action, $pushEvents);
+            }
         } catch (UnsupportedSmartHomeActionException $e) {
             Log::warning('SceneActionJob: unsupported action type — skipping.', [
                 ...$context,
@@ -134,7 +140,23 @@ final class SceneActionJob implements ShouldQueue
                 'outcome' => SmartHomeActionOutcome::Failure->value,
                 'exception_class' => $e::class,
             ]);
+
+            $this->notifyActionFailed($action, $pushEvents);
         }
+    }
+
+    /**
+     * Emit a smart_home_scene_action_failed push to the device owner.
+     */
+    private function notifyActionFailed(SceneAction $action, PushNotificationEvents $pushEvents): void
+    {
+        $user = $action->device?->user;
+
+        if ($user === null) {
+            return;
+        }
+
+        $pushEvents->notifySceneActionFailed($user, $action);
     }
 
     /**

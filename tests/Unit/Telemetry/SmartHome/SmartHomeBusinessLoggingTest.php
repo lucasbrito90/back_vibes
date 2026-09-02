@@ -3,8 +3,8 @@
 /**
  * Phase 7B.4.7 — Business Logging.
  *
- * Static code-analysis guards for the logging improvements applied to
- * App\Jobs\SmartHome\SmartHomeActionJob:
+ * Static code-analysis guards for the logging constraints that apply to the
+ * Smart Home action job, App\Jobs\SmartHome\SceneActionJob:
  *
  * - L-2 resolution: Log::info on success removed (metric + trace covers it).
  * - Security: provider_device_id removed from $context (naming-convention §8
@@ -18,32 +18,35 @@
  * These tests run at the source-file level (no DB, no HTTP fakes) so they
  * can catch regressions that would otherwise slip through a functional test
  * written before the log-field constraint existed.
+ *
+ * v1.3.0: retargeted from the removed SmartHomeActionJob to SceneActionJob,
+ * which is now the only Smart Home action job — the constraints are unchanged.
  */
-function smartHomeActionJobSource(): string
+function sceneActionJobSource(): string
 {
-    return (string) file_get_contents(dirname(__DIR__, 4).'/app/Jobs/SmartHome/SmartHomeActionJob.php');
+    return (string) file_get_contents(dirname(__DIR__, 4).'/app/Jobs/SmartHome/SceneActionJob.php');
 }
 
-test('SmartHomeActionJob never logs provider_device_id — forbidden field that reveals home layout', function () {
-    expect(smartHomeActionJobSource())->not->toContain("'provider_device_id'");
+test('SceneActionJob never logs provider_device_id — forbidden field that reveals home layout', function () {
+    expect(sceneActionJobSource())->not->toContain("'provider_device_id'");
 });
 
-test('SmartHomeActionJob never logs error_message — raw provider response, potential sensitive data', function () {
-    expect(smartHomeActionJobSource())->not->toContain("'error_message'");
+test('SceneActionJob never logs error_message — raw provider response, potential sensitive data', function () {
+    expect(sceneActionJobSource())->not->toContain("'error_message'");
 });
 
-test('SmartHomeActionJob never emits Log::info — success is covered by metric + trace (L-2 resolution)', function () {
-    expect(smartHomeActionJobSource())->not->toContain('Log::info(');
+test('SceneActionJob never emits Log::info — success is covered by metric + trace (L-2 resolution)', function () {
+    expect(sceneActionJobSource())->not->toContain('Log::info(');
 });
 
-test('SmartHomeActionJob uses exception_class instead of error_message in catch blocks', function () {
-    $source = smartHomeActionJobSource();
+test('SceneActionJob uses exception_class instead of error_message in catch blocks', function () {
+    $source = sceneActionJobSource();
 
     expect($source)->toContain("'exception_class' => \$e::class");
 });
 
-test('SmartHomeActionJob includes outcome in every failure and unsupported log', function () {
-    $source = smartHomeActionJobSource();
+test('SceneActionJob includes outcome in every failure and unsupported log', function () {
+    $source = sceneActionJobSource();
 
     // Every Log::warning / Log::error call in the failure path must carry
     // an outcome key so log fields are cross-referenceable with metrics.
@@ -61,8 +64,8 @@ test('SmartHomeActionJob includes outcome in every failure and unsupported log',
     }
 });
 
-test('SmartHomeActionJob does not log the redundant success boolean — level already captures this', function () {
-    $source = smartHomeActionJobSource();
+test('SceneActionJob does not log the redundant success boolean — level already captures this', function () {
+    $source = sceneActionJobSource();
 
     // 'success' was removed from every log context in Phase 7B.4.7.
     // The guard-clause skips use "skipping" messages and never had this key.

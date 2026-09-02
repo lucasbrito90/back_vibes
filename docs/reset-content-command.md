@@ -35,11 +35,10 @@ For each table, if `Schema::hasTable()` is false, the step is skipped.
 2. `preset_vibe_sounds`
 3. `schedule_executions`
 4. `schedules`
-5. `vibe_device_actions`
-6. `vibes`
-7. `preset_vibes`
-8. `cover_bundles`
-9. `sounds`
+5. `vibes`
+6. `preset_vibes`
+7. `cover_bundles`
+8. `sounds`
 
 All deletes run inside a single **`DB::transaction()`** so a failure rolls back.
 

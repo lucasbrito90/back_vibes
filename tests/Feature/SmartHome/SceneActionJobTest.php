@@ -3,10 +3,11 @@
 declare(strict_types=1);
 
 use App\Jobs\PushNotifications\PushNotificationJob;
-use App\Jobs\SmartHome\SmartHomeActionJob;
+use App\Jobs\SmartHome\SceneActionJob;
 use App\Models\Device;
 use App\Models\ProviderConnection;
-use App\Models\VibeDeviceAction;
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\PushNotifications\Services\PushNotificationEvents;
 use App\SmartHome\ProviderAdapterResolver;
 use App\Telemetry\SmartHome\SmartHomeActionTelemetry;
@@ -23,19 +24,19 @@ uses(RefreshDatabase::class);
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const JOB_HA_BASE = 'https://ha.example.test';
+const SCENE_JOB_HA_BASE = 'https://ha.example.test';
 
 /**
- * Build a fully-wired action: HA provider connection → device → vibe action.
+ * Build a fully-wired action: HA provider connection → device → scene action.
  *
  * @param  array<string, mixed>  $connOverrides
  * @param  array<string, mixed>  $deviceOverrides
  * @param  array<string, mixed>  $actionOverrides
  */
-function jobAction(array $connOverrides = [], array $deviceOverrides = [], array $actionOverrides = []): VibeDeviceAction
+function sceneJobAction(array $connOverrides = [], array $deviceOverrides = [], array $actionOverrides = []): SceneAction
 {
     $connection = ProviderConnection::factory()->create(array_merge([
-        'config' => ['base_url' => JOB_HA_BASE],
+        'config' => ['base_url' => SCENE_JOB_HA_BASE],
     ], $connOverrides));
 
     $device = Device::factory()->create(array_merge([
@@ -45,17 +46,20 @@ function jobAction(array $connOverrides = [], array $deviceOverrides = [], array
         'provider_device_id' => 'light.living_room',
     ], $deviceOverrides));
 
-    return VibeDeviceAction::factory()->create(array_merge([
+    $scene = Scene::factory()->create(['user_id' => $connection->user_id]);
+
+    return SceneAction::factory()->create(array_merge([
+        'scene_id' => $scene->id,
         'device_id' => $device->id,
         'action_type' => 'turn_on',
         'parameters' => null,
     ], $actionOverrides));
 }
 
-function runJob(VibeDeviceAction|int $action): void
+function runSceneJob(SceneAction|int $action): void
 {
-    $id = $action instanceof VibeDeviceAction ? $action->id : $action;
-    (new SmartHomeActionJob($id))->handle(
+    $id = $action instanceof SceneAction ? $action->id : $action;
+    (new SceneActionJob($id))->handle(
         app(ProviderAdapterResolver::class),
         app(PushNotificationEvents::class),
         app(SmartHomeActionTelemetry::class),
@@ -67,13 +71,13 @@ function runJob(VibeDeviceAction|int $action): void
 // ─────────────────────────────────────────────────────────────────────────────
 
 it('is configured to run on the smart-home queue', function () {
-    $job = new SmartHomeActionJob(1);
+    $job = new SceneActionJob(1);
 
     expect($job->queue)->toBe('smart-home');
 });
 
 it('has the expected timeout and tries', function () {
-    $job = new SmartHomeActionJob(1);
+    $job = new SceneActionJob(1);
 
     expect($job->timeout)->toBe(30)
         ->and($job->tries)->toBe(3);
@@ -84,24 +88,24 @@ it('has the expected timeout and tries', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it('executes the adapter for an existing action', function () {
-    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
 
-    $action = jobAction();
+    $action = sceneJobAction();
 
-    runJob($action);
+    runSceneJob($action);
 
     Http::assertSentCount(1);
 });
 
 it('passes the correct provider_device_id, action_type and parameters to the provider', function () {
-    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
 
-    $action = jobAction(actionOverrides: [
+    $action = sceneJobAction(actionOverrides: [
         'action_type' => 'turn_off',
         'parameters' => ['transition_marker' => 'x'],
     ]);
 
-    runJob($action);
+    runSceneJob($action);
 
     Http::assertSent(function (Request $request) {
         return str_contains($request->url(), '/api/services/light/turn_off')
@@ -111,11 +115,11 @@ it('passes the correct provider_device_id, action_type and parameters to the pro
 });
 
 it('passes only entity_id when parameters are null', function () {
-    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
 
-    $action = jobAction(actionOverrides: ['action_type' => 'toggle', 'parameters' => null]);
+    $action = sceneJobAction(actionOverrides: ['action_type' => 'toggle', 'parameters' => null]);
 
-    runJob($action);
+    runSceneJob($action);
 
     Http::assertSent(function (Request $request) {
         return str_contains($request->url(), '/api/services/light/toggle')
@@ -129,21 +133,21 @@ it('passes only entity_id when parameters are null', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it('does not emit a log on success (L-2 resolution — metric + trace covers this)', function () {
-    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
     Log::spy();
 
-    runJob(jobAction());
+    runSceneJob(sceneJobAction());
 
     Log::shouldNotHaveReceived('info');
 });
 
 it('logs a warning on a failed ActionResult but does not throw', function () {
-    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
     Log::spy();
 
-    $action = jobAction();
+    $action = sceneJobAction();
 
-    expect(fn () => runJob($action))->not->toThrow(Throwable::class);
+    expect(fn () => runSceneJob($action))->not->toThrow(Throwable::class);
 
     Log::shouldHaveReceived('warning')
         ->withArgs(fn (string $message, array $context) => str_contains($message, 'provider returned action failure')
@@ -158,9 +162,9 @@ it('handles a provider connection failure as a completed failed result (no throw
     Http::fake(fn () => throw new ConnectionException('refused'));
     Log::spy();
 
-    $action = jobAction();
+    $action = sceneJobAction();
 
-    expect(fn () => runJob($action))->not->toThrow(Throwable::class);
+    expect(fn () => runSceneJob($action))->not->toThrow(Throwable::class);
 
     Log::shouldHaveReceived('warning')
         ->withArgs(fn (string $message, array $context) => str_contains($message, 'provider returned action failure')
@@ -176,9 +180,9 @@ it('handles an unsupported action gracefully without HTTP or throw', function ()
     Http::fake();
     Log::spy();
 
-    $action = jobAction(actionOverrides: ['action_type' => 'explode']);
+    $action = sceneJobAction(actionOverrides: ['action_type' => 'explode']);
 
-    expect(fn () => runJob($action))->not->toThrow(Throwable::class);
+    expect(fn () => runSceneJob($action))->not->toThrow(Throwable::class);
 
     Http::assertNothingSent();
     Log::shouldHaveReceived('warning')
@@ -193,7 +197,7 @@ it('handles a missing/deleted action gracefully', function () {
     Http::fake();
     Log::spy();
 
-    expect(fn () => runJob(999_999))->not->toThrow(Throwable::class);
+    expect(fn () => runSceneJob(999_999))->not->toThrow(Throwable::class);
 
     Http::assertNothingSent();
     Log::shouldHaveReceived('warning')
@@ -205,14 +209,14 @@ it('handles a deleted device gracefully (cascade removes the action)', function 
     Http::fake();
     Log::spy();
 
-    $action = jobAction();
+    $action = sceneJobAction();
     $actionId = $action->id;
 
     // device_id has cascadeOnDelete: deleting the device removes its actions,
     // so in production the job hits the "action not found" graceful branch.
     $action->device->delete();
 
-    expect(fn () => runJob($actionId))->not->toThrow(Throwable::class);
+    expect(fn () => runSceneJob($actionId))->not->toThrow(Throwable::class);
 
     Http::assertNothingSent();
     Log::shouldHaveReceived('warning')
@@ -225,9 +229,9 @@ it('handles an unexpected resolver error gracefully (unknown provider)', functio
     Log::spy();
 
     // Force an unknown provider so the resolver throws InvalidArgumentException.
-    $action = jobAction(connOverrides: ['provider' => 'unknown_provider'], deviceOverrides: ['provider' => 'unknown_provider']);
+    $action = sceneJobAction(connOverrides: ['provider' => 'unknown_provider'], deviceOverrides: ['provider' => 'unknown_provider']);
 
-    expect(fn () => runJob($action))->not->toThrow(Throwable::class);
+    expect(fn () => runSceneJob($action))->not->toThrow(Throwable::class);
 
     Http::assertNothingSent();
     Log::shouldHaveReceived('error')
@@ -239,47 +243,52 @@ it('handles an unexpected resolver error gracefully (unknown provider)', functio
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Push notification integration (Phase 8)
+// Push notification integration — scene_id payload (v1.3.0)
 // ─────────────────────────────────────────────────────────────────────────────
 
-it('notifies the owner via PushNotificationEvents on a failed action result', function () {
-    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
+it('notifies the owner via PushNotificationEvents on a failed action result with scene_id', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
     Bus::fake();
 
-    $action = jobAction();
+    $action = sceneJobAction();
 
-    runJob($action);
+    runSceneJob($action);
 
     Bus::assertDispatched(PushNotificationJob::class, function (PushNotificationJob $job) use ($action) {
-        return $job->payload->data['type'] === 'smart_home_action_failed'
-            && $job->payload->data['device_id'] === (string) $action->device_id;
+        return $job->payload->data['type'] === 'smart_home_scene_action_failed'
+            && $job->payload->data['device_id'] === (string) $action->device_id
+            && $job->payload->data['scene_id'] === (string) $action->scene_id
+            && ! array_key_exists('vibe_id', $job->payload->data);
     });
 });
 
-it('notifies the owner via PushNotificationEvents on an unexpected error', function () {
+it('notifies the owner via PushNotificationEvents on an unexpected error with scene_id', function () {
     Http::fake();
     Bus::fake();
 
-    // Unknown provider → resolver throws → catch-all failure path
-    $action = jobAction(connOverrides: ['provider' => 'unknown_provider'], deviceOverrides: ['provider' => 'unknown_provider']);
+    $action = sceneJobAction(
+        connOverrides: ['provider' => 'unknown_provider'],
+        deviceOverrides: ['provider' => 'unknown_provider'],
+    );
 
-    runJob($action);
+    runSceneJob($action);
 
-    Bus::assertDispatched(PushNotificationJob::class, fn (PushNotificationJob $job) => $job->payload->data['type'] === 'smart_home_action_failed');
+    Bus::assertDispatched(PushNotificationJob::class, function (PushNotificationJob $job) use ($action) {
+        return $job->payload->data['type'] === 'smart_home_scene_action_failed'
+            && $job->payload->data['scene_id'] === (string) $action->scene_id;
+    });
 });
 
-it('does not notify via PushNotificationEvents on a successful action', function () {
-    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+it('does not notify via PushNotificationEvents on a successful scene action', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
     Bus::fake();
 
-    $action = jobAction();
-
-    runJob($action);
+    runSceneJob(sceneJobAction());
 
     Bus::assertNotDispatched(PushNotificationJob::class);
 });
 
-it('does not notify via PushNotificationEvents for an unsupported action type', function () {
+it('does not notify via PushNotificationEvents for an unsupported scene action type', function () {
     // 'set_brightness' is not in HomeAssistantAdapter::ACTION_SERVICE_MAP, so
     // executeAction() throws UnsupportedSmartHomeActionException.
     // Phase 6A alignment: that catch block intentionally skips the push notification
@@ -287,9 +296,7 @@ it('does not notify via PushNotificationEvents for an unsupported action type', 
     Http::fake();
     Bus::fake();
 
-    $action = jobAction(actionOverrides: ['action_type' => 'set_brightness']);
-
-    runJob($action);
+    runSceneJob(sceneJobAction(actionOverrides: ['action_type' => 'set_brightness']));
 
     Bus::assertNotDispatched(PushNotificationJob::class);
 });
@@ -299,9 +306,9 @@ it('does not notify via PushNotificationEvents for an unsupported action type', 
 // ─────────────────────────────────────────────────────────────────────────────
 
 it('never logs the access token or credentials', function () {
-    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
 
-    $connection = ProviderConnection::factory()->create(['config' => ['base_url' => JOB_HA_BASE]]);
+    $connection = ProviderConnection::factory()->create(['config' => ['base_url' => SCENE_JOB_HA_BASE]]);
     $connection->setEncryptedCredentials(['access_token' => 'super-secret-token-value']);
     $connection->save();
 
@@ -311,11 +318,16 @@ it('never logs the access token or credentials', function () {
         'provider' => $connection->provider,
         'provider_device_id' => 'light.living_room',
     ]);
-    $action = VibeDeviceAction::factory()->create(['device_id' => $device->id, 'action_type' => 'turn_on']);
+    $scene = Scene::factory()->create(['user_id' => $connection->user_id]);
+    $action = SceneAction::factory()->create([
+        'scene_id' => $scene->id,
+        'device_id' => $device->id,
+        'action_type' => 'turn_on',
+    ]);
 
     Log::spy();
 
-    runJob($action);
+    runSceneJob($action);
 
     // Success path emits no log — L-2 resolution.
     Log::shouldNotHaveReceived('info');
@@ -349,9 +361,9 @@ it('never logs the access token or credentials', function () {
 // ─────────────────────────────────────────────────────────────────────────────
 
 it('only performs the single provider call routed through the adapter', function () {
-    Http::fake([JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
 
-    runJob(jobAction());
+    runSceneJob(sceneJobAction());
 
     // Exactly one request, to the HA services endpoint — proves the job goes
     // through the adapter rather than making ad-hoc HTTP calls.
