@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['user_id', 'name', 'description', 'thumbnail_url', 'card_image_url', 'player_background_url', 'artwork_url', 'is_active'])]
+#[Fillable(['user_id', 'scene_id', 'name', 'description', 'thumbnail_url', 'card_image_url', 'player_background_url', 'artwork_url', 'is_active'])]
 final class Vibe extends Model
 {
     use HasFactory;
@@ -24,6 +24,11 @@ final class Vibe extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function scene(): BelongsTo
+    {
+        return $this->belongsTo(Scene::class);
     }
 
     public function sounds(): BelongsToMany
