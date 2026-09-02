@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 use App\Models\Device;
 use App\Models\ProviderConnection;
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\Models\Schedule;
 use App\Models\User;
 use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use App\SmartHome\Validation\ScheduleAutomationValidator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -20,12 +21,13 @@ function automationValidator(): ScheduleAutomationValidator
 }
 
 /**
- * Build a schedule owned by $user with a vibe and one device action wired to
- * the same user's provider connection.
+ * Build a schedule owned by $user with a vibe linked to a scene and one scene action
+ * wired to the same user's provider connection.
  */
 function validAutomationSchedule(User $user): Schedule
 {
-    $vibe = Vibe::factory()->create(['user_id' => $user->id]);
+    $scene = Scene::factory()->create(['user_id' => $user->id]);
+    $vibe = Vibe::factory()->create(['user_id' => $user->id, 'scene_id' => $scene->id]);
     $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
     $device = Device::factory()->create([
         'user_id' => $user->id,
@@ -33,8 +35,8 @@ function validAutomationSchedule(User $user): Schedule
         'provider' => $connection->provider,
     ]);
 
-    VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
+    SceneAction::factory()->create([
+        'scene_id' => $scene->id,
         'device_id' => $device->id,
         'sort_order' => 0,
     ]);
@@ -71,12 +73,12 @@ test('returns false when vibe belongs to another user', function () {
     expect(automationValidator()->validate($schedule))->toBeFalse();
 });
 
-test('returns false when a device action has no device', function () {
+test('returns false when a scene action has no device', function () {
     $user = User::factory()->create();
     $schedule = validAutomationSchedule($user);
 
-    $schedule->load('vibe.deviceActions.device.providerConnection');
-    $schedule->vibe->deviceActions->first()->setRelation('device', null);
+    $schedule->load('vibe.scene.actions.device.providerConnection');
+    $schedule->vibe->scene->actions->first()->setRelation('device', null);
 
     expect(automationValidator()->validate($schedule))->toBeFalse();
 });
@@ -84,7 +86,8 @@ test('returns false when a device action has no device', function () {
 test('returns false when device belongs to another user', function () {
     $owner = User::factory()->create();
     $other = User::factory()->create();
-    $vibe = Vibe::factory()->create(['user_id' => $owner->id]);
+    $scene = Scene::factory()->create(['user_id' => $owner->id]);
+    $vibe = Vibe::factory()->create(['user_id' => $owner->id, 'scene_id' => $scene->id]);
     $connection = ProviderConnection::factory()->create(['user_id' => $owner->id]);
     $foreignDevice = Device::factory()->create([
         'user_id' => $other->id,
@@ -92,8 +95,8 @@ test('returns false when device belongs to another user', function () {
         'provider' => $connection->provider,
     ]);
 
-    VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
+    SceneAction::factory()->create([
+        'scene_id' => $scene->id,
         'device_id' => $foreignDevice->id,
     ]);
 
@@ -109,8 +112,8 @@ test('returns false when device has no provider connection', function () {
     $user = User::factory()->create();
     $schedule = validAutomationSchedule($user);
 
-    $schedule->load('vibe.deviceActions.device.providerConnection');
-    $schedule->vibe->deviceActions->first()->device->setRelation('providerConnection', null);
+    $schedule->load('vibe.scene.actions.device.providerConnection');
+    $schedule->vibe->scene->actions->first()->device->setRelation('providerConnection', null);
 
     expect(automationValidator()->validate($schedule))->toBeFalse();
 });
@@ -118,7 +121,8 @@ test('returns false when device has no provider connection', function () {
 test('returns false when provider connection belongs to another user', function () {
     $owner = User::factory()->create();
     $other = User::factory()->create();
-    $vibe = Vibe::factory()->create(['user_id' => $owner->id]);
+    $scene = Scene::factory()->create(['user_id' => $owner->id]);
+    $vibe = Vibe::factory()->create(['user_id' => $owner->id, 'scene_id' => $scene->id]);
     $foreignConnection = ProviderConnection::factory()->create(['user_id' => $other->id]);
     $device = Device::factory()->create([
         'user_id' => $owner->id,
@@ -126,8 +130,8 @@ test('returns false when provider connection belongs to another user', function 
         'provider' => $foreignConnection->provider,
     ]);
 
-    VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
+    SceneAction::factory()->create([
+        'scene_id' => $scene->id,
         'device_id' => $device->id,
     ]);
 
@@ -139,9 +143,10 @@ test('returns false when provider connection belongs to another user', function 
     expect(automationValidator()->validate($schedule))->toBeFalse();
 });
 
-test('returns true when vibe has multiple valid device actions', function () {
+test('returns true when vibe scene has multiple valid actions', function () {
     $user = User::factory()->create();
-    $vibe = Vibe::factory()->create(['user_id' => $user->id]);
+    $scene = Scene::factory()->create(['user_id' => $user->id]);
+    $vibe = Vibe::factory()->create(['user_id' => $user->id, 'scene_id' => $scene->id]);
     $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
 
     foreach ([0, 1] as $sortOrder) {
@@ -152,8 +157,8 @@ test('returns true when vibe has multiple valid device actions', function () {
             'provider_device_id' => "light.room_{$sortOrder}",
         ]);
 
-        VibeDeviceAction::factory()->create([
-            'vibe_id' => $vibe->id,
+        SceneAction::factory()->create([
+            'scene_id' => $scene->id,
             'device_id' => $device->id,
             'sort_order' => $sortOrder,
         ]);
@@ -174,9 +179,9 @@ test('returns true for a fully valid automation schedule', function () {
     expect(automationValidator()->validate($schedule))->toBeTrue();
 });
 
-test('returns true when vibe has no device actions', function () {
+test('returns true when vibe has no linked scene', function () {
     $user = User::factory()->create();
-    $vibe = Vibe::factory()->create(['user_id' => $user->id]);
+    $vibe = Vibe::factory()->create(['user_id' => $user->id, 'scene_id' => null]);
 
     $schedule = Schedule::factory()->create([
         'user_id' => $user->id,

@@ -4,20 +4,22 @@ declare(strict_types=1);
 
 namespace App\SmartHome\Services;
 
-use App\Jobs\SmartHome\SmartHomeActionJob;
+use App\Jobs\SmartHome\SceneActionJob;
+use App\Models\SceneAction;
 use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use App\SmartHome\DTOs\SmartHomeDispatchResult;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
- * Dispatches one SmartHomeActionJob per vibe device action, in sort_order.
+ * Dispatches one SceneActionJob per scene action linked to the vibe's Scene, in sort_order.
  *
  * Responsibilities:
- * - Load device actions for the given vibe, ordered by sort_order.
- * - Dispatch a SmartHomeActionJob for each action.
- * - Return a SmartHomeDispatchResult summary.
+ * - Resolve the vibe's linked Scene (if any) and load its actions ordered by sort_order.
+ * - Dispatch a SceneActionJob for each action with a resolvable device.
+ * - Return a SmartHomeDispatchResult summary (vibe_id remains the vibe context).
  *
  * Guarantees:
+ * - Vibes without scene_id return an empty dispatch result (not an error).
  * - Never calls ProviderAdapterResolver or HomeAssistantAdapter.
  * - Never makes HTTP requests.
  * - Actions with a missing device are skipped and counted in `skipped`.
@@ -26,10 +28,16 @@ final class VibeSmartHomeDispatchService
 {
     public function dispatch(Vibe $vibe): SmartHomeDispatchResult
     {
-        $actions = VibeDeviceAction::where('vibe_id', $vibe->id)
-            ->with('device')
-            ->orderBy('sort_order')
-            ->get();
+        if ($vibe->scene_id === null) {
+            return new SmartHomeDispatchResult(
+                vibe_id: $vibe->id,
+                dispatched: 0,
+                skipped: 0,
+                action_ids: [],
+            );
+        }
+
+        $actions = $this->resolveSceneActions($vibe);
 
         $dispatched = 0;
         $skipped = 0;
@@ -42,7 +50,7 @@ final class VibeSmartHomeDispatchService
                 continue;
             }
 
-            SmartHomeActionJob::dispatch($action->id);
+            SceneActionJob::dispatch($action->id);
 
             $dispatched++;
             $actionIds[] = $action->id;
@@ -54,5 +62,28 @@ final class VibeSmartHomeDispatchService
             skipped: $skipped,
             action_ids: $actionIds,
         );
+    }
+
+    /**
+     * @return Collection<int, SceneAction>
+     */
+    private function resolveSceneActions(Vibe $vibe): Collection
+    {
+        $scene = $vibe->relationLoaded('scene')
+            ? $vibe->scene
+            : $vibe->scene()->first();
+
+        if ($scene === null) {
+            return new Collection;
+        }
+
+        if ($scene->relationLoaded('actions')) {
+            return $scene->actions;
+        }
+
+        return $scene->actions()
+            ->with('device')
+            ->orderBy('sort_order')
+            ->get();
     }
 }

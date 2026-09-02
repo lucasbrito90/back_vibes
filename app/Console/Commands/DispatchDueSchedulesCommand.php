@@ -52,7 +52,7 @@ final class DispatchDueSchedulesCommand extends Command
         $nowUtc = CarbonImmutable::now('UTC');
 
         $due = Schedule::query()
-            ->with(['vibe.deviceActions.device.providerConnection'])
+            ->with(['vibe.scene.actions.device.providerConnection'])
             ->where('is_enabled', true)
             ->whereNotNull('next_run_at')
             ->where('next_run_at', '<=', $nowUtc)
