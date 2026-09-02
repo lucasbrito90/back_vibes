@@ -3,10 +3,11 @@
 declare(strict_types=1);
 
 use App\Models\Device;
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\Models\Schedule;
 use App\Models\User;
 use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Kreait\Firebase\Contract\Auth;
 use Lcobucci\JWT\Token\DataSet;
@@ -56,17 +57,23 @@ function schedEnrichSetup(string $uid, string $vibeName = 'Test Vibe'): array
 }
 
 /**
- * Attaches a VibeDeviceAction to the given vibe.
- * The device is created independently (owned by its own user) since this is read-model only.
+ * Links a Scene to the vibe and attaches the given number of SceneActions.
  */
-function addDeviceAction(Vibe $vibe): VibeDeviceAction
+function linkSceneWithActions(Vibe $vibe, int $actionCount = 1): Scene
 {
-    $device = Device::factory()->create();
+    $scene = Scene::factory()->create(['user_id' => $vibe->user_id]);
+    $vibe->update(['scene_id' => $scene->id]);
 
-    return VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
-        'device_id' => $device->id,
-    ]);
+    for ($i = 0; $i < $actionCount; $i++) {
+        $device = Device::factory()->create(['user_id' => $vibe->user_id]);
+
+        SceneAction::factory()->create([
+            'scene_id' => $scene->id,
+            'device_id' => $device->id,
+        ]);
+    }
+
+    return $scene;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,10 +125,10 @@ test('ScheduleResource includes vibe_name on update', function () {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// device_actions_count — 0 / 1 / multiple
+// device_actions_count — 0 / 1 / multiple (via linked Scene actions)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('device_actions_count is 0 when vibe has no device actions', function () {
+test('device_actions_count is 0 when vibe has no linked scene', function () {
     [$user, $vibe, $schedule] = schedEnrichSetup('fb-se-dac-zero');
     schedEnrichAuth($user);
 
@@ -130,9 +137,21 @@ test('device_actions_count is 0 when vibe has no device actions', function () {
         ->assertJsonPath('data.device_actions_count', 0);
 });
 
-test('device_actions_count is 1 when vibe has one device action', function () {
+test('device_actions_count is 0 when vibe has a linked scene with no actions', function () {
+    [$user, $vibe, $schedule] = schedEnrichSetup('fb-se-dac-empty-scene');
+    $scene = Scene::factory()->create(['user_id' => $user->id]);
+    $vibe->update(['scene_id' => $scene->id]);
+    schedEnrichAuth($user);
+
+    $this->getJson("/api/schedules/{$schedule->id}", schedEnrichHeaders())
+        ->assertOk()
+        ->assertJsonPath('data.device_actions_count', 0)
+        ->assertJsonPath('data.has_device_actions', false);
+});
+
+test('device_actions_count is 1 when linked scene has one action', function () {
     [$user, $vibe, $schedule] = schedEnrichSetup('fb-se-dac-one');
-    addDeviceAction($vibe);
+    linkSceneWithActions($vibe, 1);
     schedEnrichAuth($user);
 
     $this->getJson("/api/schedules/{$schedule->id}", schedEnrichHeaders())
@@ -140,11 +159,9 @@ test('device_actions_count is 1 when vibe has one device action', function () {
         ->assertJsonPath('data.device_actions_count', 1);
 });
 
-test('device_actions_count is correct when vibe has multiple device actions', function () {
+test('device_actions_count is correct when linked scene has multiple actions', function () {
     [$user, $vibe, $schedule] = schedEnrichSetup('fb-se-dac-multi');
-    addDeviceAction($vibe);
-    addDeviceAction($vibe);
-    addDeviceAction($vibe);
+    linkSceneWithActions($vibe, 3);
     schedEnrichAuth($user);
 
     $this->getJson("/api/schedules/{$schedule->id}", schedEnrichHeaders())
@@ -154,8 +171,7 @@ test('device_actions_count is correct when vibe has multiple device actions', fu
 
 test('device_actions_count is returned correctly on index', function () {
     [$user, $vibe, $schedule] = schedEnrichSetup('fb-se-dac-index');
-    addDeviceAction($vibe);
-    addDeviceAction($vibe);
+    linkSceneWithActions($vibe, 2);
     schedEnrichAuth($user);
 
     $response = $this->getJson('/api/schedules', schedEnrichHeaders())->assertOk();
@@ -167,7 +183,7 @@ test('device_actions_count is returned correctly on index', function () {
 // has_device_actions — true / false
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('has_device_actions is false when vibe has no device actions', function () {
+test('has_device_actions is false when vibe has no linked scene', function () {
     [$user, $vibe, $schedule] = schedEnrichSetup('fb-se-hda-false');
     schedEnrichAuth($user);
 
@@ -176,9 +192,9 @@ test('has_device_actions is false when vibe has no device actions', function () 
         ->assertJsonPath('data.has_device_actions', false);
 });
 
-test('has_device_actions is true when vibe has at least one device action', function () {
+test('has_device_actions is true when linked scene has at least one action', function () {
     [$user, $vibe, $schedule] = schedEnrichSetup('fb-se-hda-true');
-    addDeviceAction($vibe);
+    linkSceneWithActions($vibe, 1);
     schedEnrichAuth($user);
 
     $this->getJson("/api/schedules/{$schedule->id}", schedEnrichHeaders())
@@ -186,10 +202,9 @@ test('has_device_actions is true when vibe has at least one device action', func
         ->assertJsonPath('data.has_device_actions', true);
 });
 
-test('has_device_actions is true when vibe has multiple device actions', function () {
+test('has_device_actions is true when linked scene has multiple actions', function () {
     [$user, $vibe, $schedule] = schedEnrichSetup('fb-se-hda-multi');
-    addDeviceAction($vibe);
-    addDeviceAction($vibe);
+    linkSceneWithActions($vibe, 2);
     schedEnrichAuth($user);
 
     $this->getJson("/api/schedules/{$schedule->id}", schedEnrichHeaders())
@@ -198,10 +213,10 @@ test('has_device_actions is true when vibe has multiple device actions', functio
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// device_actions_count counts only actions of the schedule's own vibe
+// device_actions_count counts only actions on the schedule's linked scene
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('device_actions_count reflects only the actions on the linked vibe', function () {
+test('device_actions_count reflects only the actions on the linked scene', function () {
     $user = User::factory()->create(['firebase_uid' => 'fb-se-dac-isolation']);
 
     $vibeA = Vibe::factory()->for($user)->create(['name' => 'Vibe A']);
@@ -210,14 +225,8 @@ test('device_actions_count reflects only the actions on the linked vibe', functi
     $scheduleA = Schedule::factory()->daily()->for($user, 'user')->for($vibeA, 'vibe')->create();
     Schedule::factory()->daily()->for($user, 'user')->for($vibeB, 'vibe')->create();
 
-    // Attach 2 actions to Vibe A and 5 to Vibe B.
-    addDeviceAction($vibeA);
-    addDeviceAction($vibeA);
-    addDeviceAction($vibeB);
-    addDeviceAction($vibeB);
-    addDeviceAction($vibeB);
-    addDeviceAction($vibeB);
-    addDeviceAction($vibeB);
+    linkSceneWithActions($vibeA, 2);
+    linkSceneWithActions($vibeB, 5);
 
     schedEnrichAuth($user);
 
