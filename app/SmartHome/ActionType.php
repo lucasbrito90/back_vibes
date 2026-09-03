@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\SmartHome;
 
 /**
- * MVP device action types for vibe_device_actions.
+ * MVP device action types for scene_actions.
  *
  * MVP supports: turn_on, turn_off, toggle.
  * Future types (set_brightness, set_color, activate_scene, …) are NOT added here

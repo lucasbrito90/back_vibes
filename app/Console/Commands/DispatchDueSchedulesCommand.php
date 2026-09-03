@@ -10,8 +10,11 @@ use App\PushNotifications\Services\PushNotificationEvents;
 use App\Services\Scheduling\RecurrenceService;
 use App\Services\Scheduling\RecurrenceType;
 use App\Services\Scheduling\ScheduleInput;
+use App\SmartHome\DTOs\SmartHomeDispatchResult;
 use App\SmartHome\Services\VibeSmartHomeDispatchService;
 use App\SmartHome\Validation\ScheduleAutomationValidator;
+use App\Telemetry\SmartHome\SmartHomeDispatchEntryPoint;
+use App\Telemetry\SmartHome\SmartHomeDispatchTelemetry;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -42,13 +45,14 @@ final class DispatchDueSchedulesCommand extends Command
         PushNotificationEvents $pushEvents,
         ScheduleAutomationValidator $automationValidator,
         VibeSmartHomeDispatchService $smartHomeDispatch,
+        SmartHomeDispatchTelemetry $dispatchTelemetry,
     ): int {
         $isDryRun = (bool) $this->option('dry-run');
         $batchSize = max(1, (int) $this->option('batch'));
         $nowUtc = CarbonImmutable::now('UTC');
 
         $due = Schedule::query()
-            ->with(['vibe.deviceActions.device.providerConnection'])
+            ->with(['vibe.scene.actions.device.providerConnection'])
             ->where('is_enabled', true)
             ->whereNotNull('next_run_at')
             ->where('next_run_at', '<=', $nowUtc)
@@ -77,6 +81,7 @@ final class DispatchDueSchedulesCommand extends Command
                         $schedule,
                         $automationValidator,
                         $smartHomeDispatch,
+                        $dispatchTelemetry,
                     );
                 } elseif ($result === 'skipped_duplicate') {
                     $skippedDuplicate++;
@@ -173,11 +178,20 @@ final class DispatchDueSchedulesCommand extends Command
      *
      * Runs outside DB::transaction(). Failures are logged and swallowed so
      * recurrence and batch processing continue (ADR-023, ADR-026).
+     *
+     * Phase 7B.4.2 wraps only the dispatch() call (not validation, not the
+     * vibe lookup) with the `smart_home.dispatch` Business Span, tagged
+     * `ixora.dispatch.entry_point=scheduled` — this command is the only
+     * place that knows "scheduled" is the right classification for this
+     * call; VibeSmartHomeDispatchService itself is unmodified and unaware
+     * telemetry or a scheduler exist (see
+     * backend-smart-home-dispatch-boundary.md).
      */
     private function dispatchSmartHomeAfterSchedule(
         Schedule $schedule,
         ScheduleAutomationValidator $validator,
         VibeSmartHomeDispatchService $smartHomeDispatch,
+        SmartHomeDispatchTelemetry $dispatchTelemetry,
     ): void {
         try {
             if (! $validator->validate($schedule)) {
@@ -197,7 +211,11 @@ final class DispatchDueSchedulesCommand extends Command
                 return;
             }
 
-            $smartHomeDispatch->dispatch($vibe);
+            $dispatchTelemetry->wrap(
+                SmartHomeDispatchEntryPoint::Scheduled,
+                fn () => $smartHomeDispatch->dispatch($vibe),
+                fn (SmartHomeDispatchResult $result) => [$result->dispatched, $result->skipped],
+            );
         } catch (Throwable $e) {
             Log::warning('Schedule Smart Home dispatch failed.', [
                 'schedule_id' => $schedule->id,

@@ -1,5 +1,6 @@
 <?php
 
+use App\Telemetry\OpenTelemetry\Logging\OpenTelemetryLoggerFactory;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;
@@ -125,6 +126,32 @@ return [
 
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
+        ],
+
+        /*
+         * Phase 8.8.8 — OTLP log export channel.
+         *
+         * Uses App\Logging\OpenTelemetryLoggerFactory to create exactly one
+         * OpenTelemetry\Contrib\Logs\Monolog\Handler backed by
+         * Globals::loggerProvider() (populated by SdkAutoloader when
+         * OTEL_PHP_AUTOLOAD_ENABLED=true and OTEL_LOGS_EXPORTER=otlp).
+         *
+         * Safe defaults:
+         *  - The factory falls back to a NullHandler when the SDK is disabled
+         *    or the LoggerProvider is unavailable, so this channel is always
+         *    a valid, resolvable Monolog channel regardless of env settings.
+         *  - The handler is wrapped in FailSafeOtelHandler so exporter errors
+         *    (network, auth, serialization) are never propagated upward.
+         *  - bubble=false on the inner handler so records handled here are not
+         *    double-sent to further handlers in a HandlerGroup.
+         *
+         * Emergency rollback: set OTEL_LOGS_EXPORTER=none (or remove "otel"
+         * from LOG_STACK) to disable OTLP log export without touching code.
+         */
+        'otel' => [
+            'driver' => 'custom',
+            'via' => OpenTelemetryLoggerFactory::class,
+            'level' => env('OTEL_LOG_LEVEL', env('LOG_LEVEL', 'info')),
         ],
 
     ],

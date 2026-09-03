@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace App\SmartHome\Validation;
 
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\Models\Schedule;
 use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -52,20 +53,39 @@ final class ScheduleAutomationValidator
     }
 
     /**
-     * @return Collection<int, VibeDeviceAction>
+     * @return Collection<int, SceneAction>
      */
     private function resolveDeviceActions(Vibe $vibe): Collection
     {
-        if ($vibe->relationLoaded('deviceActions')) {
-            return $vibe->deviceActions;
+        $scene = $this->resolveScene($vibe);
+
+        if ($scene === null) {
+            return new Collection;
         }
 
-        return $vibe->deviceActions()
+        if ($scene->relationLoaded('actions')) {
+            return $scene->actions;
+        }
+
+        return $scene->actions()
             ->with(['device.providerConnection'])
             ->get();
     }
 
-    private function isActionValidForSchedule(VibeDeviceAction $action, int $scheduleUserId): bool
+    private function resolveScene(Vibe $vibe): ?Scene
+    {
+        if ($vibe->scene_id === null) {
+            return null;
+        }
+
+        if ($vibe->relationLoaded('scene')) {
+            return $vibe->scene;
+        }
+
+        return $vibe->scene;
+    }
+
+    private function isActionValidForSchedule(SceneAction $action, int $scheduleUserId): bool
     {
         $device = $action->relationLoaded('device')
             ? $action->getRelation('device')

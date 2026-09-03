@@ -11,6 +11,7 @@ This application is a Laravel application and its main Laravel ecosystems packag
 
 - php - 8.4
 - laravel/framework (LARAVEL) - v13
+- laravel/octane (OCTANE) - v2
 - laravel/prompts (PROMPTS) - v0
 - laravel/boost (BOOST) - v2
 - laravel/mcp (MCP) - v0
@@ -97,7 +98,7 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 - Always use curly braces for control structures, even for single-line bodies.
 - Use PHP 8 constructor property promotion: `public function __construct(public GitHub $github) { }`. Do not leave empty zero-parameter `__construct()` methods unless the constructor is private.
 - Use explicit return type declarations and type hints for all method parameters: `function isAccessible(User $user, ?string $path = null): bool`
-- Use TitleCase for Enum keys: `FavoritePerson`, `BestLake`, `Monthly`.
+- Follow existing application Enum naming conventions.
 - Prefer PHPDoc blocks over inline comments. Only add inline comments for exceptionally complex logic.
 - Use array shape type definitions in PHPDoc blocks.
 
@@ -143,6 +144,18 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 ## Vite Error
 
 - If you receive an "Illuminate\Foundation\ViteException: Unable to locate file in Vite manifest" error, you can run `npm run build` or ask the user to run `npm run dev` or `composer run dev`.
+
+=== octane/core rules ===
+
+# Laravel Octane
+
+This application uses Laravel Octane, a long-running PHP server. The application bootstraps once and handles many requests within the same process.
+
+- Never store request-specific state in singletons or static properties, because it can leak across requests.
+- Use `config('octane.server')` to detect the active driver (`swoole`, `roadrunner`, or `frankenphp`).
+- Prefer scoped bindings (`$this->app->scoped()`) over singletons for per-request services.
+
+When working on Octane-specific features (concurrency, shared tables, memory, driver configuration, testing), invoke `octane-development` for detailed rules.
 
 === pint/core rules ===
 

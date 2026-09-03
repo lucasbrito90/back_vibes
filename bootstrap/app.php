@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnsureAdminApproved;
 use App\Http\Middleware\EnsureDiagnosticsEnvironment;
 use App\Http\Middleware\FirebaseAuthenticate;
+use App\Http\Middleware\HttpTelemetryMiddleware;
 use Fruitcake\Cors\CorsService;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -23,6 +24,15 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin.approved' => EnsureAdminApproved::class,
             'diagnostics.non_production' => EnsureDiagnosticsEnvironment::class,
         ]);
+
+        // Phase 7B.1 (Observability Foundation) — HTTP + routing telemetry.
+        // Appended (not prepended) to the global stack so it is the innermost
+        // global middleware: it wraps routing itself (able to observe 404/405)
+        // while running exactly once per request, for every route (web, api,
+        // and the framework health route) — see
+        // App\Http\Middleware\HttpTelemetryMiddleware and
+        // backend-http-routing-instrumentation.md §"Middleware / request lifecycle".
+        $middleware->append(HttpTelemetryMiddleware::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // When middleware throws before returning (e.g. PostTooLarge), HandleCors never reaches

@@ -5,8 +5,6 @@ declare(strict_types=1);
 use App\Models\Device;
 use App\Models\ProviderConnection;
 use App\Models\User;
-use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use App\SmartHome\ActionType;
 use App\SmartHome\DeviceStatus;
 use App\SmartHome\ProviderType;
@@ -43,31 +41,6 @@ test('devices table does not have old external_id column', function () {
     $columns = Schema::getColumnListing('devices');
 
     expect($columns)->not->toContain('external_id');
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Schema — vibe_device_actions table
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('vibe_device_actions table has sort_order and updated_at', function () {
-    $columns = Schema::getColumnListing('vibe_device_actions');
-
-    expect($columns)
-        ->toContain('sort_order')
-        ->toContain('updated_at');
-});
-
-test('vibe_device_actions table retains all original columns', function () {
-    $columns = Schema::getColumnListing('vibe_device_actions');
-
-    expect($columns)
-        ->toContain('id')
-        ->toContain('vibe_id')
-        ->toContain('device_id')
-        ->toContain('action_type')
-        ->toContain('parameters')
-        ->toContain('delay_seconds')
-        ->toContain('created_at');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -222,129 +195,6 @@ test('DeviceFactory unknown state sets status unknown and null last_seen_at', fu
 
     expect($device->status)->toBe(DeviceStatus::Unknown->value)
         ->and($device->last_seen_at)->toBeNull();
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// VibeDeviceAction model — creation and casts
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('VibeDeviceAction can be created with sort_order and delay_seconds', function () {
-    $action = VibeDeviceAction::factory()->create([
-        'sort_order' => 2,
-        'delay_seconds' => 5,
-    ]);
-
-    $fresh = $action->fresh();
-
-    expect($fresh->sort_order)->toBe(2)
-        ->and($fresh->delay_seconds)->toBe(5);
-});
-
-test('VibeDeviceAction sort_order defaults to 0', function () {
-    $action = VibeDeviceAction::factory()->create();
-
-    expect($action->fresh()->sort_order)->toBe(0);
-});
-
-test('VibeDeviceAction sort_order and delay_seconds cast to integer', function () {
-    $action = VibeDeviceAction::factory()->create([
-        'sort_order' => 3,
-        'delay_seconds' => 10,
-    ]);
-
-    expect($action->fresh()->sort_order)->toBeInt()
-        ->and($action->fresh()->delay_seconds)->toBeInt();
-});
-
-test('VibeDeviceAction updated_at is populated on create', function () {
-    $action = VibeDeviceAction::factory()->create();
-
-    expect($action->fresh()->updated_at)->not->toBeNull();
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// VibeDeviceAction — no unique constraint (multiple actions per device/vibe)
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('multiple VibeDeviceActions on same vibe and device are allowed', function () {
-    $user = User::factory()->create();
-    $vibe = Vibe::factory()->for($user)->create();
-    $device = Device::factory()->create(['user_id' => $user->id]);
-
-    VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
-        'device_id' => $device->id,
-        'action_type' => ActionType::TurnOn->value,
-        'sort_order' => 0,
-    ]);
-
-    // Second action on the same vibe + device — must not throw
-    $second = VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
-        'device_id' => $device->id,
-        'action_type' => ActionType::TurnOff->value,
-        'sort_order' => 1,
-        'delay_seconds' => 30,
-    ]);
-
-    expect($second->id)->toBeInt()
-        ->and(VibeDeviceAction::query()->where('vibe_id', $vibe->id)->count())->toBe(2);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Vibe::deviceActions — ordered by sort_order
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('Vibe deviceActions are returned ordered by sort_order ascending', function () {
-    $user = User::factory()->create();
-    $vibe = Vibe::factory()->for($user)->create();
-    $device = Device::factory()->create(['user_id' => $user->id]);
-
-    // Insert in reverse order so we can confirm the ordering is by sort_order.
-    VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
-        'device_id' => $device->id,
-        'action_type' => ActionType::Toggle->value,
-        'sort_order' => 10,
-    ]);
-    VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
-        'device_id' => $device->id,
-        'action_type' => ActionType::TurnOn->value,
-        'sort_order' => 1,
-    ]);
-    VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
-        'device_id' => $device->id,
-        'action_type' => ActionType::TurnOff->value,
-        'sort_order' => 5,
-    ]);
-
-    $actions = $vibe->deviceActions()->get();
-
-    expect($actions->pluck('sort_order')->all())->toBe([1, 5, 10]);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// VibeDeviceActionFactory states
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('VibeDeviceActionFactory turnOn state sets action_type turn_on', function () {
-    $action = VibeDeviceAction::factory()->turnOn()->create();
-
-    expect($action->action_type)->toBe(ActionType::TurnOn->value);
-});
-
-test('VibeDeviceActionFactory turnOff state sets action_type turn_off', function () {
-    $action = VibeDeviceAction::factory()->turnOff()->create();
-
-    expect($action->action_type)->toBe(ActionType::TurnOff->value);
-});
-
-test('VibeDeviceActionFactory toggle state sets action_type toggle', function () {
-    $action = VibeDeviceAction::factory()->toggle()->create();
-
-    expect($action->action_type)->toBe(ActionType::Toggle->value);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

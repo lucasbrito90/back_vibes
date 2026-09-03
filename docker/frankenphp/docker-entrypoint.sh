@@ -19,4 +19,11 @@ php artisan view:cache
 # Present in Laravel 11+; harmless if unavailable
 php artisan event:cache 2>/dev/null || true
 
+# Octane worker mode (TD-5) — read by public/frankenphp-worker.php via
+# vendor/laravel/octane/bin/frankenphp-worker.php. MAX_REQUESTS recycles
+# each worker after N requests (leak safety net); LARAVEL_OCTANE marks the
+# process as Octane-managed for any code/package that checks it.
+export MAX_REQUESTS="${OCTANE_MAX_REQUESTS:-500}"
+export LARAVEL_OCTANE=1
+
 exec frankenphp run --config /etc/frankenphp/Caddyfile

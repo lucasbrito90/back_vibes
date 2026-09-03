@@ -3,13 +3,13 @@
 declare(strict_types=1);
 
 use App\Models\ProviderConnection;
+use App\Models\SceneAction;
 use App\Models\ScheduleExecution;
-use App\Models\VibeDeviceAction;
 use App\PushNotifications\DTOs\NotificationPayload;
 use App\PushNotifications\Notifications\AccountSecurityNoticeNotification;
 use App\PushNotifications\Notifications\ScheduleExecutionFailedNotification;
-use App\PushNotifications\Notifications\SmartHomeActionFailedNotification;
 use App\PushNotifications\Notifications\SmartHomeProviderUnreachableNotification;
+use App\PushNotifications\Notifications\SmartHomeSceneActionFailedNotification;
 
 /**
  * Phase 6B — Notification UX alignment.
@@ -21,15 +21,20 @@ use App\PushNotifications\Notifications\SmartHomeProviderUnreachableNotification
  * - no success notification types in the failure taxonomy
  *
  * Mobile tap destinations (verified in front_vibes unit tests):
- *   schedule_execution_failed       → /schedules
- *   smart_home_action_failed        → /devices
- *   smart_home_provider_unreachable → /devices
- *   account_security_notice         → /settings
+ *   schedule_execution_failed        → /schedules
+ *   smart_home_scene_action_failed   → /devices
+ *   smart_home_provider_unreachable  → /devices
+ *   account_security_notice          → /settings
+ *
+ * v1.3.0: smart_home_action_failed was replaced by
+ * smart_home_scene_action_failed when Vibe dispatch moved to the linked
+ * Scene. The mobile handler for the new type lands with the front_vibes
+ * side of this migration.
  */
 test('failure notification types align with documented mobile tap routes', function () {
     $routesByType = [
         'schedule_execution_failed' => '/schedules',
-        'smart_home_action_failed' => '/devices',
+        'smart_home_scene_action_failed' => '/devices',
         'smart_home_provider_unreachable' => '/devices',
         'account_security_notice' => '/settings',
     ];
@@ -40,9 +45,9 @@ test('failure notification types align with documented mobile tap routes', funct
 test('each failure builder produces non-empty user-facing title and body', function () {
     $payloads = [
         ScheduleExecutionFailedNotification::build(new ScheduleExecution(['schedule_id' => 1])),
-        SmartHomeActionFailedNotification::build(new VibeDeviceAction([
+        SmartHomeSceneActionFailedNotification::build(new SceneAction([
             'device_id' => 1,
-            'vibe_id' => 2,
+            'scene_id' => 2,
             'action_type' => 'turn_on',
         ])),
         SmartHomeProviderUnreachableNotification::build(new ProviderConnection([
@@ -62,9 +67,9 @@ test('each failure builder produces non-empty user-facing title and body', funct
 test('failure notification display copy avoids technical jargon and provider slugs', function () {
     $payloads = [
         ScheduleExecutionFailedNotification::build(new ScheduleExecution(['schedule_id' => 1])),
-        SmartHomeActionFailedNotification::build(new VibeDeviceAction([
+        SmartHomeSceneActionFailedNotification::build(new SceneAction([
             'device_id' => 1,
-            'vibe_id' => 2,
+            'scene_id' => 2,
             'action_type' => 'turn_on',
         ])),
         SmartHomeProviderUnreachableNotification::build(new ProviderConnection([
@@ -86,9 +91,9 @@ test('failure notification display copy avoids technical jargon and provider slu
 test('failure taxonomy contains only the four operational types — no success variants', function () {
     $types = [
         ScheduleExecutionFailedNotification::build(new ScheduleExecution(['schedule_id' => 1]))->data['type'],
-        SmartHomeActionFailedNotification::build(new VibeDeviceAction([
+        SmartHomeSceneActionFailedNotification::build(new SceneAction([
             'device_id' => 1,
-            'vibe_id' => 2,
+            'scene_id' => 2,
             'action_type' => 'turn_on',
         ]))->data['type'],
         SmartHomeProviderUnreachableNotification::build(new ProviderConnection([
@@ -100,7 +105,7 @@ test('failure taxonomy contains only the four operational types — no success v
 
     expect($types)->toBe([
         'schedule_execution_failed',
-        'smart_home_action_failed',
+        'smart_home_scene_action_failed',
         'smart_home_provider_unreachable',
         'account_security_notice',
     ]);

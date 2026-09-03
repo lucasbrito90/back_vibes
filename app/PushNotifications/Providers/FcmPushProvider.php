@@ -10,6 +10,7 @@ use App\PushNotifications\DTOs\NotificationPayload;
 use App\PushNotifications\DTOs\PushResult;
 use App\PushNotifications\Exceptions\FcmAuthenticationException;
 use App\PushNotifications\Exceptions\FcmConfigurationException;
+use App\Telemetry\PushNotifications\PushProviderTelemetry;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -56,6 +57,7 @@ final class FcmPushProvider implements PushProvider
      */
     public function __construct(
         private readonly array|string|null $credentials,
+        private readonly PushProviderTelemetry $providerTelemetry,
         private readonly string $projectId = '',
         private readonly string $scope = 'https://www.googleapis.com/auth/firebase.messaging',
         private readonly int $httpTimeout = 10,
@@ -65,44 +67,51 @@ final class FcmPushProvider implements PushProvider
 
     public function send(PushToken $token, NotificationPayload $payload): PushResult
     {
-        $accessToken = $this->accessToken();
+        // Business Telemetry boundary (Phase 7B.6): wraps the whole method
+        // — OAuth access-token acquisition through the FCM HTTP call and
+        // response interpretation. See PushProviderTelemetry's docblock
+        // for why there is no guard clause to exclude first, unlike
+        // HomeAssistantAdapter::executeAction().
+        return $this->providerTelemetry->wrap(function () use ($token, $payload) {
+            $accessToken = $this->accessToken();
 
-        $endpoint = sprintf(self::SEND_ENDPOINT, $this->resolveProjectId());
+            $endpoint = sprintf(self::SEND_ENDPOINT, $this->resolveProjectId());
 
-        try {
-            $response = Http::withToken($accessToken)
-                ->timeout($this->httpTimeout)
-                ->acceptJson()
-                ->post($endpoint, [
-                    'message' => $this->buildMessage($token, $payload),
+            try {
+                $response = Http::withToken($accessToken)
+                    ->timeout($this->httpTimeout)
+                    ->acceptJson()
+                    ->post($endpoint, [
+                        'message' => $this->buildMessage($token, $payload),
+                    ]);
+            } catch (ConnectionException $e) {
+                Log::warning('FCM send failed: transport error.', [
+                    'token_preview' => $token->tokenPreview(),
+                    'error' => $e->getMessage(),
                 ]);
-        } catch (ConnectionException $e) {
-            Log::warning('FCM send failed: transport error.', [
-                'token_preview' => $token->tokenPreview(),
-                'error' => $e->getMessage(),
-            ]);
 
-            return PushResult::failure(
-                provider: self::PROVIDER,
-                statusCode: null,
-                errorCode: 'network_error',
-                errorMessage: 'FCM request did not complete (connection/timeout).',
-                tokenPreview: $token->tokenPreview(),
-            );
-        }
+                return PushResult::failure(
+                    provider: self::PROVIDER,
+                    statusCode: null,
+                    errorCode: 'network_error',
+                    errorMessage: 'FCM request did not complete (connection/timeout).',
+                    tokenPreview: $token->tokenPreview(),
+                );
+            }
 
-        if ($response->successful()) {
-            $messageId = $response->json('name');
+            if ($response->successful()) {
+                $messageId = $response->json('name');
 
-            return PushResult::success(
-                provider: self::PROVIDER,
-                statusCode: $response->status(),
-                messageId: is_string($messageId) ? $messageId : null,
-                tokenPreview: $token->tokenPreview(),
-            );
-        }
+                return PushResult::success(
+                    provider: self::PROVIDER,
+                    statusCode: $response->status(),
+                    messageId: is_string($messageId) ? $messageId : null,
+                    tokenPreview: $token->tokenPreview(),
+                );
+            }
 
-        return $this->failureFromResponse($token, $response->status(), (array) $response->json());
+            return $this->failureFromResponse($token, $response->status(), (array) $response->json());
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────

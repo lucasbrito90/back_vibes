@@ -5,11 +5,12 @@ declare(strict_types=1);
 use App\Jobs\PushNotifications\PushNotificationJob;
 use App\Models\Device;
 use App\Models\ProviderConnection;
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\Models\Schedule;
 use App\Models\ScheduleExecution;
 use App\Models\User;
 use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use App\PushNotifications\DTOs\NotificationPayload;
 use App\PushNotifications\Services\PushNotificationEvents;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -88,34 +89,35 @@ test('notifyScheduleExecutionFailed dispatches a job with the correct payload', 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// notifySmartHomeActionFailed
+// notifySceneActionFailed
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('notifySmartHomeActionFailed dispatches a job with the correct payload', function () {
+test('notifySceneActionFailed dispatches a job with the correct payload', function () {
     Bus::fake();
 
     $user = User::factory()->create();
-    $vibe = Vibe::factory()->for($user)->create();
+    $scene = Scene::factory()->create(['user_id' => $user->id]);
     $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
     $device = Device::factory()->create([
         'user_id' => $user->id,
         'provider_connection_id' => $connection->id,
     ]);
-    $action = VibeDeviceAction::factory()->create([
-        'vibe_id' => $vibe->id,
+    $action = SceneAction::factory()->create([
+        'scene_id' => $scene->id,
         'device_id' => $device->id,
         'action_type' => 'turn_on',
     ]);
 
-    pneEvents()->notifySmartHomeActionFailed($user, $action);
+    pneEvents()->notifySceneActionFailed($user, $action);
 
     $payload = dispatchedPayload();
     expect($payload->title)->toBe('Device action failed')
         ->and($payload->body)->toBe('A Smart Home action could not be completed.')
-        ->and($payload->data['type'])->toBe('smart_home_action_failed')
+        ->and($payload->data['type'])->toBe('smart_home_scene_action_failed')
         ->and($payload->data['device_id'])->toBe((string) $device->id)
-        ->and($payload->data['vibe_id'])->toBe((string) $vibe->id)
-        ->and($payload->data['action_type'])->toBe('turn_on');
+        ->and($payload->data['scene_id'])->toBe((string) $scene->id)
+        ->and($payload->data['action_type'])->toBe('turn_on')
+        ->and(array_key_exists('vibe_id', $payload->data))->toBeFalse();
 
     assertAllStringData($payload);
 });

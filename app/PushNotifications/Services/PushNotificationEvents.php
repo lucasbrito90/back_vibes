@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace App\PushNotifications\Services;
 
 use App\Models\ProviderConnection;
+use App\Models\SceneAction;
 use App\Models\ScheduleExecution;
 use App\Models\User;
-use App\Models\VibeDeviceAction;
 use App\PushNotifications\DTOs\NotificationPayload;
 use App\PushNotifications\Notifications\AccountSecurityNoticeNotification;
 use App\PushNotifications\Notifications\ScheduleExecutionFailedNotification;
-use App\PushNotifications\Notifications\SmartHomeActionFailedNotification;
 use App\PushNotifications\Notifications\SmartHomeProviderUnreachableNotification;
+use App\PushNotifications\Notifications\SmartHomeSceneActionFailedNotification;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -59,17 +59,17 @@ final class PushNotificationEvents
     }
 
     /**
-     * A Smart Home device action could not be completed.
+     * A Smart Home scene action could not be completed.
      */
-    public function notifySmartHomeActionFailed(User $user, VibeDeviceAction $action): void
+    public function notifySceneActionFailed(User $user, SceneAction $action): void
     {
         $this->send(
             $user,
-            SmartHomeActionFailedNotification::build($action),
-            notificationType: 'smart_home_action_failed',
+            SmartHomeSceneActionFailedNotification::build($action),
+            notificationType: 'smart_home_scene_action_failed',
             context: [
                 'device_id' => $action->device_id,
-                'vibe_id' => $action->vibe_id,
+                'scene_id' => $action->scene_id,
             ],
         );
     }

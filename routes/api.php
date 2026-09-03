@@ -11,11 +11,13 @@ use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PresetVibeController;
 use App\Http\Controllers\Api\ProviderConnectionController;
 use App\Http\Controllers\Api\PushTokenController;
+use App\Http\Controllers\Api\SceneActionController;
+use App\Http\Controllers\Api\SceneController;
+use App\Http\Controllers\Api\SceneDispatchController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
 use App\Http\Controllers\Api\VibeController;
-use App\Http\Controllers\Api\VibeDeviceActionController;
 use App\Http\Controllers\Api\VibeSmartHomeDispatchController;
 use App\Http\Controllers\Api\VibeSoundController;
 use Illuminate\Support\Facades\App;
@@ -24,10 +26,14 @@ use Illuminate\Support\Facades\Route;
 // Public — no authentication required.
 Route::get('/health', [HealthController::class, 'index']);
 
-Route::post('/auth/firebase', [FirebaseAuthController::class, 'store']);
-Route::post('/auth/sync', FirebaseUserSyncController::class);
+// Authentication endpoints are public but rate-limited to block brute-force.
+// See AppServiceProvider::configureRateLimiting() for the per-IP limit and justification.
+Route::middleware('throttle:auth')->group(function () {
+    Route::post('/auth/firebase', [FirebaseAuthController::class, 'store']);
+    Route::post('/auth/sync', FirebaseUserSyncController::class);
+});
 
-Route::middleware('firebase.auth')->group(function () {
+Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::post('admin/access-requests', [AdminAccessRequestController::class, 'store']);
 
     Route::apiResource('vibes', VibeController::class);
@@ -36,6 +42,7 @@ Route::middleware('firebase.auth')->group(function () {
     Route::post('provider-connections/{providerConnection}/sync', [ProviderConnectionController::class, 'sync'])
         ->name('provider-connections.sync');
     Route::apiResource('devices', DeviceController::class);
+    Route::apiResource('scenes', SceneController::class);
 
     Route::get('schedules/{schedule}/executions', [ScheduleExecutionController::class, 'index']);
     Route::post('schedules/{schedule}/executions/{occurrence_key}/ack', [ScheduleExecutionController::class, 'acknowledge'])
@@ -78,6 +85,17 @@ Route::middleware('firebase.auth')->group(function () {
     Route::post('push-tokens', [PushTokenController::class, 'store']);
     Route::delete('push-tokens/{pushToken}', [PushTokenController::class, 'destroy']);
 
+    Route::prefix('scenes/{scene}')->group(function () {
+        Route::post('execute', SceneDispatchController::class);
+
+        Route::get('actions', [SceneActionController::class, 'index']);
+        Route::post('actions', [SceneActionController::class, 'store']);
+        // reorder MUST be registered before the {action} wildcard routes.
+        Route::post('actions/reorder', [SceneActionController::class, 'reorder']);
+        Route::patch('actions/{action}', [SceneActionController::class, 'update']);
+        Route::delete('actions/{action}', [SceneActionController::class, 'destroy']);
+    });
+
     Route::prefix('vibes/{vibe}')->group(function () {
         Route::get('sounds', [VibeSoundController::class, 'index']);
         Route::post('sounds', [VibeSoundController::class, 'store']);
@@ -85,25 +103,18 @@ Route::middleware('firebase.auth')->group(function () {
         Route::delete('sounds/{sound}', [VibeSoundController::class, 'destroy']);
 
         Route::post('smart-home/dispatch', VibeSmartHomeDispatchController::class);
-
-        Route::get('device-actions', [VibeDeviceActionController::class, 'index']);
-        Route::post('device-actions', [VibeDeviceActionController::class, 'store']);
-        // reorder MUST be registered before the {action} wildcard routes.
-        Route::post('device-actions/reorder', [VibeDeviceActionController::class, 'reorder']);
-        Route::patch('device-actions/{action}', [VibeDeviceActionController::class, 'update']);
-        Route::delete('device-actions/{action}', [VibeDeviceActionController::class, 'destroy']);
     });
 });
 
 // Smoke route for admin middleware (used by tests; harmless in other envs).
-Route::middleware(['firebase.auth', 'admin.approved'])->get('__admin_gate', fn () => response()->json(['data' => ['ok' => true]]));
+Route::middleware(['firebase.auth', 'throttle:api', 'admin.approved'])->get('__admin_gate', fn () => response()->json(['data' => ['ok' => true]]));
 
 if (! App::environment('production')) {
     /*
      | Authenticated Laravel user QA snapshot (staging/local/testing only).
      | Never registered while APP_ENV=production.
      */
-    Route::middleware(['firebase.auth', 'diagnostics.non_production'])
+    Route::middleware(['firebase.auth', 'throttle:api', 'diagnostics.non_production'])
         ->get('/debug/me', DebugMeController::class)
         ->name('api.debug-me');
 }

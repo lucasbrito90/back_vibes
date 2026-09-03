@@ -12,6 +12,7 @@ use App\SmartHome\DTOs\ProviderDevice;
 use App\SmartHome\Exceptions\ProviderConnectionException;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
 use App\SmartHome\ProviderType;
+use App\Telemetry\SmartHome\SmartHomeProviderTelemetry;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -39,7 +40,7 @@ function haConnection(string $token = HA_TOKEN, string $baseUrl = HA_BASE): Prov
 
 function haAdapter(): HomeAssistantAdapter
 {
-    return new HomeAssistantAdapter;
+    return new HomeAssistantAdapter(app(SmartHomeProviderTelemetry::class));
 }
 
 /** Index a list of ProviderDevice by provider_device_id. */

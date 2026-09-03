@@ -3,14 +3,15 @@
 declare(strict_types=1);
 
 use App\Jobs\PushNotifications\PushNotificationJob;
-use App\Jobs\SmartHome\SmartHomeActionJob;
+use App\Jobs\SmartHome\SceneActionJob;
 use App\Models\Device;
 use App\Models\ProviderConnection;
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\Models\Schedule;
 use App\Models\ScheduleExecution;
 use App\Models\User;
 use App\Models\Vibe;
-use App\Models\VibeDeviceAction;
 use App\Services\Scheduling\RecurrenceType;
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Dispatcher;
@@ -59,7 +60,8 @@ function dueSchedule(User $user, Vibe $vibe, array $overrides = []): Schedule
  */
 function dueScheduleWithDeviceActions(User $user, int $actionCount = 1, array $overrides = []): Schedule
 {
-    $vibe = Vibe::factory()->for($user)->create();
+    $scene = Scene::factory()->create(['user_id' => $user->id]);
+    $vibe = Vibe::factory()->for($user)->create(['scene_id' => $scene->id]);
     $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
 
     for ($i = 0; $i < $actionCount; $i++) {
@@ -70,8 +72,8 @@ function dueScheduleWithDeviceActions(User $user, int $actionCount = 1, array $o
             'provider_device_id' => "light.room_{$i}",
         ]);
 
-        VibeDeviceAction::factory()->create([
-            'vibe_id' => $vibe->id,
+        SceneAction::factory()->create([
+            'scene_id' => $scene->id,
             'device_id' => $device->id,
             'sort_order' => $i,
         ]);
@@ -83,7 +85,7 @@ function dueScheduleWithDeviceActions(User $user, int $actionCount = 1, array $o
 /**
  * Fake push jobs only and route Smart Home enqueue through a controllable dispatcher.
  *
- * @param  callable(SmartHomeActionJob, int): void  $onSmartHomeEnqueue  Receives the job and 1-based attempt index.
+ * @param  callable(SceneActionJob, int): void  $onSmartHomeEnqueue  Receives the job and 1-based attempt index.
  */
 function fakeSmartHomeDispatchWithEnqueueHandler(callable $onSmartHomeEnqueue): void
 {
@@ -94,7 +96,7 @@ function fakeSmartHomeDispatchWithEnqueueHandler(callable $onSmartHomeEnqueue): 
     $mock = Mockery::mock($realDispatcher)->makePartial();
     $mock->shouldReceive('dispatch')
         ->andReturnUsing(function ($command, $handler = null) use ($onSmartHomeEnqueue, &$attempt, $realDispatcher) {
-            if ($command instanceof SmartHomeActionJob) {
+            if ($command instanceof SceneActionJob) {
                 $attempt++;
                 $onSmartHomeEnqueue($command, $attempt);
 
@@ -642,7 +644,7 @@ test('dispatched schedule enqueues Smart Home action jobs', function () {
     $this->artisan('schedules:dispatch-due')->assertSuccessful();
 
     expect(ScheduleExecution::query()->where('schedule_id', $schedule->id)->count())->toBe(1);
-    Bus::assertDispatchedTimes(SmartHomeActionJob::class, 2);
+    Bus::assertDispatchedTimes(SceneActionJob::class, 2);
 });
 
 test('skipped duplicate schedule does not enqueue Smart Home jobs', function () {
@@ -667,7 +669,7 @@ test('skipped duplicate schedule does not enqueue Smart Home jobs', function () 
 
     $this->artisan('schedules:dispatch-due')->assertSuccessful();
 
-    Bus::assertNotDispatched(SmartHomeActionJob::class);
+    Bus::assertNotDispatched(SceneActionJob::class);
 });
 
 test('dry-run does not enqueue Smart Home jobs', function () {
@@ -678,7 +680,7 @@ test('dry-run does not enqueue Smart Home jobs', function () {
 
     $this->artisan('schedules:dispatch-due', ['--dry-run' => true])->assertSuccessful();
 
-    Bus::assertNotDispatched(SmartHomeActionJob::class);
+    Bus::assertNotDispatched(SceneActionJob::class);
 });
 
 test('validator failure skips Smart Home dispatch but keeps schedule execution', function () {
@@ -693,7 +695,7 @@ test('validator failure skips Smart Home dispatch but keeps schedule execution',
     $this->artisan('schedules:dispatch-due')->assertSuccessful();
 
     expect(ScheduleExecution::query()->where('schedule_id', $schedule->id)->count())->toBe(1);
-    Bus::assertNotDispatched(SmartHomeActionJob::class);
+    Bus::assertNotDispatched(SceneActionJob::class);
     // Phase 6A alignment: validator skip is log + continue — no push notification (ADR-026).
     Bus::assertNotDispatched(PushNotificationJob::class);
 
@@ -728,7 +730,7 @@ test('Smart Home dispatch exception logs safely and does not emit schedule failu
 test('Smart Home dispatch failure on first schedule does not block second schedule', function () {
     $enqueued = [];
 
-    fakeSmartHomeDispatchWithEnqueueHandler(function (SmartHomeActionJob $job, int $attempt) use (&$enqueued): void {
+    fakeSmartHomeDispatchWithEnqueueHandler(function (SceneActionJob $job, int $attempt) use (&$enqueued): void {
         if ($attempt === 1) {
             throw new RuntimeException('queue unavailable');
         }
@@ -737,11 +739,12 @@ test('Smart Home dispatch failure on first schedule does not block second schedu
     });
 
     $user = dispatchUser();
-    $vibeOne = Vibe::factory()->for($user)->create();
-    $vibeTwo = Vibe::factory()->for($user)->create();
     $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
 
-    foreach ([$vibeOne, $vibeTwo] as $index => $vibe) {
+    $schedules = [];
+    foreach ([0, 1] as $index) {
+        $scene = Scene::factory()->create(['user_id' => $user->id]);
+        $vibe = Vibe::factory()->for($user)->create(['scene_id' => $scene->id]);
         $device = Device::factory()->create([
             'user_id' => $user->id,
             'provider_connection_id' => $connection->id,
@@ -749,19 +752,18 @@ test('Smart Home dispatch failure on first schedule does not block second schedu
             'provider_device_id' => "light.block_{$index}",
         ]);
 
-        VibeDeviceAction::factory()->create([
-            'vibe_id' => $vibe->id,
+        SceneAction::factory()->create([
+            'scene_id' => $scene->id,
             'device_id' => $device->id,
             'sort_order' => 0,
         ]);
+
+        $schedules[] = dueSchedule($user, $vibe, [
+            'next_run_at' => CarbonImmutable::now('UTC')->subMinutes(10 - ($index * 5)),
+        ]);
     }
 
-    $scheduleOne = dueSchedule($user, $vibeOne, [
-        'next_run_at' => CarbonImmutable::now('UTC')->subMinutes(10),
-    ]);
-    $scheduleTwo = dueSchedule($user, $vibeTwo, [
-        'next_run_at' => CarbonImmutable::now('UTC')->subMinutes(5),
-    ]);
+    [$scheduleOne, $scheduleTwo] = $schedules;
 
     $this->artisan('schedules:dispatch-due')->assertSuccessful();
 
