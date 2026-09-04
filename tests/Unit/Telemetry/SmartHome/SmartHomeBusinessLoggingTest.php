@@ -40,9 +40,16 @@ test('SceneActionJob never emits Log::info — success is covered by metric + tr
 });
 
 test('SceneActionJob uses exception_class instead of error_message in catch blocks', function () {
+    // v1.4.0-T21: SceneActionJob no longer uses try/catch to detect a
+    // failed execution — SmartHomeActionTelemetry::wrapWithMetadata()
+    // returns the exception via $wrap->thrownException instead of
+    // throwing, so the outcome/trace/duration can be captured for
+    // scene_action_executions without a catch block. The constraint this
+    // test enforces (log the exception class, never a raw error message)
+    // is unchanged — only the variable path is.
     $source = sceneActionJobSource();
 
-    expect($source)->toContain("'exception_class' => \$e::class");
+    expect($source)->toContain("'exception_class' => \$wrap->thrownException::class");
 });
 
 test('SceneActionJob includes outcome in every failure and unsupported log', function () {

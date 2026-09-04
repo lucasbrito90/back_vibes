@@ -9,6 +9,7 @@ use App\Models\SceneAction;
 use App\Models\Vibe;
 use App\SmartHome\DTOs\SmartHomeDispatchResult;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Str;
 
 /**
  * Dispatches one SceneActionJob per scene action linked to the vibe's Scene, in sort_order.
@@ -28,12 +29,15 @@ final class VibeSmartHomeDispatchService
 {
     public function dispatch(Vibe $vibe): SmartHomeDispatchResult
     {
+        $sceneExecutionId = (string) Str::uuid();
+
         if ($vibe->scene_id === null) {
             return new SmartHomeDispatchResult(
                 vibe_id: $vibe->id,
                 dispatched: 0,
                 skipped: 0,
                 action_ids: [],
+                scene_execution_id: $sceneExecutionId,
             );
         }
 
@@ -50,7 +54,7 @@ final class VibeSmartHomeDispatchService
                 continue;
             }
 
-            SceneActionJob::dispatch($action->id);
+            SceneActionJob::dispatch($action->id, $sceneExecutionId);
 
             $dispatched++;
             $actionIds[] = $action->id;
@@ -61,6 +65,7 @@ final class VibeSmartHomeDispatchService
             dispatched: $dispatched,
             skipped: $skipped,
             action_ids: $actionIds,
+            scene_execution_id: $sceneExecutionId,
         );
     }
 
