@@ -8,6 +8,7 @@ use App\Models\User;
 use App\SmartHome\ActionType;
 use App\SmartHome\DeviceStatus;
 use App\SmartHome\ProviderType;
+use Database\Factories\DeviceFactory;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -32,6 +33,7 @@ test('devices table has all hardened MVP columns', function () {
         ->toContain('provider_device_id')
         ->toContain('status')
         ->toContain('metadata')
+        ->toContain('capabilities')
         ->toContain('last_seen_at')
         ->toContain('created_at')
         ->toContain('updated_at');
@@ -92,6 +94,50 @@ test('Device metadata casts to array', function () {
 
     expect($device->fresh()->metadata)->toBe($meta)
         ->and($device->fresh()->metadata)->toBeArray();
+});
+
+test('Device capabilities casts to array and preserves ADR-033 map shape', function () {
+    $capabilities = [
+        'can_turn_on' => [],
+        'can_turn_off' => [],
+        'can_toggle' => [],
+        'can_set_brightness' => ['min' => 0, 'max' => 255, 'step' => 1],
+    ];
+
+    $device = Device::factory()->create(['capabilities' => $capabilities]);
+
+    expect($device->fresh()->capabilities)->toBe($capabilities)
+        ->and($device->fresh()->capabilities)->toBeArray()
+        ->and(array_is_list($device->capabilities))->toBeFalse()
+        ->and($device->capabilities['can_set_brightness'])->toMatchArray(['min' => 0, 'max' => 255, 'step' => 1]);
+});
+
+test('Device capabilities is nullable for unknown state', function () {
+    $device = Device::factory()->withoutCapabilities()->create();
+
+    expect($device->fresh()->capabilities)->toBeNull();
+});
+
+test('DeviceFactory generates ADR-033 capabilities map for lights', function () {
+    $device = Device::factory()->dimmableLight()->create();
+
+    expect($device->capabilities)->toBeArray()
+        ->and($device->capabilities)->toHaveKeys(['can_turn_on', 'can_turn_off', 'can_toggle', 'can_set_brightness'])
+        ->and($device->capabilities['can_turn_on'])->toBe([])
+        ->and($device->capabilities['can_set_brightness'])->toMatchArray(['min' => 0, 'max' => 255, 'step' => 1]);
+});
+
+test('DeviceFactory generates boolean-only capabilities for switch-type fixtures', function () {
+    $device = Device::factory()->create([
+        'type' => 'switch',
+        'capabilities' => DeviceFactory::adr033CapabilitiesForType('switch'),
+    ]);
+
+    expect($device->capabilities)->toMatchArray([
+        'can_turn_on' => [],
+        'can_turn_off' => [],
+        'can_toggle' => [],
+    ])->and($device->capabilities)->not->toHaveKey('can_set_brightness');
 });
 
 test('Device last_seen_at casts to Carbon datetime', function () {
