@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Requests;
 
+use App\Models\ProviderConnection;
 use App\SmartHome\ProviderAdapterRegistry;
+use App\SmartHome\Validation\ProviderConnectionValidationRulesBuilder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -17,7 +19,10 @@ class UpdateProviderConnectionRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
+        $adapterRegistry = app(ProviderAdapterRegistry::class);
+        $registeredSlugs = $adapterRegistry->registeredSlugs();
+
+        $rules = [
             'name' => [
                 'sometimes',
                 'string',
@@ -28,14 +33,51 @@ class UpdateProviderConnectionRequest extends FormRequest
             ],
             'provider' => [
                 'sometimes',
-                Rule::in(app(ProviderAdapterRegistry::class)->registeredSlugs()),
+                Rule::in($registeredSlugs),
             ],
-            'config' => ['sometimes', 'array'],
-            'config.base_url' => ['sometimes', 'url:https'],
-            'encrypted_credentials' => ['sometimes', 'array'],
-            'encrypted_credentials.access_token' => ['sometimes', 'string'],
             'status' => ['prohibited'],
             'last_tested_at' => ['prohibited'],
         ];
+
+        $provider = $this->resolveProviderSlug();
+
+        if ($provider !== null && in_array($provider, $registeredSlugs, true)) {
+            return array_merge(
+                $rules,
+                app(ProviderConnectionValidationRulesBuilder::class)->updateProviderFieldRules($provider),
+            );
+        }
+
+        return array_merge($rules, [
+            'config' => ['sometimes', 'array'],
+            'encrypted_credentials' => ['sometimes', 'array'],
+        ]);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'provider.in' => 'The selected smart home provider is not registered.',
+        ];
+    }
+
+    private function resolveProviderSlug(): ?string
+    {
+        $provider = $this->input('provider');
+
+        if (is_string($provider) && $provider !== '') {
+            return $provider;
+        }
+
+        $connection = $this->route('provider_connection') ?? $this->route('providerConnection');
+
+        if ($connection instanceof ProviderConnection) {
+            return $connection->provider;
+        }
+
+        return null;
     }
 }
