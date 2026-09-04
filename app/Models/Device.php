@@ -16,7 +16,7 @@ use Illuminate\Support\Carbon;
  * @property int $user_id
  * @property int $provider_connection_id
  * @property string $name
- * @property string $type
+ * @property string|null $type IXORA-normalised category (DeviceType) when set; nullable for manual create
  * @property string $provider
  * @property string $provider_device_id
  * @property string $status

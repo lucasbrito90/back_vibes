@@ -201,19 +201,21 @@ test('DeviceFactory unknown state sets status unknown and null last_seen_at', fu
 // ActionType enum
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('ActionType mvpAllowed returns turn_on, turn_off, and toggle', function () {
+test('ActionType mvpAllowed returns turn_on, turn_off, toggle, and set_brightness', function () {
     $allowed = ActionType::mvpAllowed();
 
-    expect($allowed)->toHaveCount(3)
+    expect($allowed)->toHaveCount(4)
         ->and($allowed)->toContain(ActionType::TurnOn)
         ->and($allowed)->toContain(ActionType::TurnOff)
-        ->and($allowed)->toContain(ActionType::Toggle);
+        ->and($allowed)->toContain(ActionType::Toggle)
+        ->and($allowed)->toContain(ActionType::SetBrightness);
 });
 
 test('ActionType values are the expected strings', function () {
     expect(ActionType::TurnOn->value)->toBe('turn_on')
         ->and(ActionType::TurnOff->value)->toBe('turn_off')
-        ->and(ActionType::Toggle->value)->toBe('toggle');
+        ->and(ActionType::Toggle->value)->toBe('toggle')
+        ->and(ActionType::SetBrightness->value)->toBe('set_brightness');
 });
 
 test('ActionType all cases are MVP supported', function () {

@@ -156,18 +156,37 @@ test('encrypted_credentials is hidden from JSON serialization', function () {
 // Unique constraint
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('unique constraint prevents two connections same user and provider', function () {
+test('unique constraint prevents two connections same user and name', function () {
     $user = User::factory()->create();
 
     ProviderConnection::factory()->create([
         'user_id' => $user->id,
-        'provider' => ProviderType::HomeAssistant->value,
+        'name' => 'Home HA',
     ]);
 
     expect(fn () => ProviderConnection::factory()->create([
         'user_id' => $user->id,
-        'provider' => ProviderType::HomeAssistant->value,
+        'name' => 'Home HA',
     ]))->toThrow(QueryException::class);
+});
+
+test('same user can have two home_assistant connections with different names', function () {
+    $user = User::factory()->create();
+
+    $home = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Home HA',
+        'provider' => ProviderType::HomeAssistant->value,
+    ]);
+
+    $office = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Office HA',
+        'provider' => ProviderType::HomeAssistant->value,
+    ]);
+
+    expect($home->id)->not->toBe($office->id)
+        ->and(ProviderConnection::where('user_id', $user->id)->count())->toBe(2);
 });
 
 test('different users can each have a home_assistant connection', function () {

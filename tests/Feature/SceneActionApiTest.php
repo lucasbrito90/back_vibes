@@ -228,10 +228,27 @@ test('store rejects invalid action_type', function () {
 
     $this->postJson("/api/scenes/{$scene->id}/actions", [
         'device_id' => $device->id,
-        'action_type' => 'set_brightness',
+        'action_type' => 'set_color',
     ], saaHeaders())
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['action_type']);
+});
+
+test('store accepts set_brightness without FormRequest changes beyond ActionType enum', function () {
+    $user = saaUser('fb-saa-store-brightness');
+    $scene = saaSceneFor($user);
+    $device = saaDeviceFor($user);
+
+    saaAuth($user);
+
+    $this->postJson("/api/scenes/{$scene->id}/actions", [
+        'device_id' => $device->id,
+        'action_type' => ActionType::SetBrightness->value,
+        'parameters' => ['brightness' => 200],
+    ], saaHeaders())
+        ->assertCreated()
+        ->assertJsonPath('data.action_type', ActionType::SetBrightness->value)
+        ->assertJsonPath('data.parameters.brightness', 200);
 });
 
 test('cross-user cannot create action on another users scene', function () {

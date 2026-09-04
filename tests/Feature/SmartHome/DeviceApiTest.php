@@ -489,28 +489,31 @@ test('same provider_connection_id and provider_device_id fails with unique const
     ], devHeaders());
 })->throws(QueryException::class);
 
-test('same provider_device_id on different provider_connection_id is allowed', function () {
-    // One user can only have one HA connection (DB unique on user_id+provider).
-    // Use two different users, each with their own connection and the same entity_id.
-    $alice = devUser('fb-dev-uniq-diff-alice');
-    $bob = devUser('fb-dev-uniq-diff-bob');
+test('same provider_device_id on different provider_connection_id is allowed for same user', function () {
+    $user = devUser('fb-dev-uniq-diff-same-user');
 
-    $aliceConn = connectionFor($alice);
+    $homeConn = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Home HA',
+    ]);
 
-    $bobConn = connectionFor($bob);
+    $officeConn = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Office HA',
+    ]);
 
     Device::factory()->create([
-        'user_id' => $alice->id,
-        'provider_connection_id' => $aliceConn->id,
-        'provider' => $aliceConn->provider,
+        'user_id' => $user->id,
+        'provider_connection_id' => $homeConn->id,
+        'provider' => $homeConn->provider,
         'provider_device_id' => 'light.living_room',
     ]);
 
-    devAuth($bob);
+    devAuth($user);
 
     $this->postJson('/api/devices', [
-        'provider_connection_id' => $bobConn->id,
-        'name' => 'Same Entity ID Different Owner',
+        'provider_connection_id' => $officeConn->id,
+        'name' => 'Same Entity ID Different Connection',
         'provider_device_id' => 'light.living_room',
     ], devHeaders())->assertCreated();
 });

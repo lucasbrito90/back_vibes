@@ -4,17 +4,27 @@ declare(strict_types=1);
 
 use App\SmartHome\Adapters\HomeAssistantAdapter;
 use App\SmartHome\Contracts\ProviderAdapter;
+use App\SmartHome\ProviderAdapterRegistry;
 use App\SmartHome\ProviderAdapterResolver;
+use App\SmartHome\ProviderDescriptorRegistry;
 use App\SmartHome\ProviderType;
-use App\Telemetry\SmartHome\SmartHomeProviderTelemetry;
 use Tests\TestCase;
 
 uses(TestCase::class);
 
+function makeRegistry(): ProviderAdapterRegistry
+{
+    return new ProviderAdapterRegistry(app(), config('smart_home.adapters'));
+}
+
 function makeResolver(): ProviderAdapterResolver
 {
-    return new ProviderAdapterResolver(new HomeAssistantAdapter(app(SmartHomeProviderTelemetry::class)));
+    return new ProviderAdapterResolver(makeRegistry());
 }
+
+test('registeredSlugs returns only configured adapter slugs', function () {
+    expect(makeRegistry()->registeredSlugs())->toBe(['home_assistant']);
+});
 
 test('resolves home_assistant by string slug', function () {
     $adapter = makeResolver()->forProvider('home_assistant');
@@ -49,4 +59,22 @@ test('resolver is bound as a singleton in the container', function () {
 
 test('HomeAssistantAdapter is bound as a singleton in the container', function () {
     expect(app(HomeAssistantAdapter::class))->toBe(app(HomeAssistantAdapter::class));
+});
+
+test('descriptor registry returns home_assistant descriptor for registered slug', function () {
+    $descriptor = app(ProviderDescriptorRegistry::class)->forSlug('home_assistant');
+
+    expect($descriptor->slug)->toBe('home_assistant')
+        ->and($descriptor->label)->toBe('Home Assistant')
+        ->and($descriptor->config)->toHaveKey('base_url')
+        ->and($descriptor->credentials)->toHaveKey('access_token');
+});
+
+test('descriptor registry all returns only registered slugs', function () {
+    $slugs = array_map(
+        fn ($descriptor) => $descriptor->slug,
+        app(ProviderDescriptorRegistry::class)->all(),
+    );
+
+    expect($slugs)->toBe(['home_assistant']);
 });

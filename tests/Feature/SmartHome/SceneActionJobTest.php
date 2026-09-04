@@ -289,14 +289,14 @@ it('does not notify via PushNotificationEvents on a successful scene action', fu
 });
 
 it('does not notify via PushNotificationEvents for an unsupported scene action type', function () {
-    // 'set_brightness' is not in HomeAssistantAdapter::ACTION_SERVICE_MAP, so
+    // 'set_color' is not in HomeAssistantAdapter::ACTION_SERVICE_MAP, so
     // executeAction() throws UnsupportedSmartHomeActionException.
     // Phase 6A alignment: that catch block intentionally skips the push notification
     // (ADR-026: log + skip + continue). This test pins that contract.
     Http::fake();
     Bus::fake();
 
-    runSceneJob(sceneJobAction(actionOverrides: ['action_type' => 'set_brightness']));
+    runSceneJob(sceneJobAction(actionOverrides: ['action_type' => 'set_color']));
 
     Bus::assertNotDispatched(PushNotificationJob::class);
 });
