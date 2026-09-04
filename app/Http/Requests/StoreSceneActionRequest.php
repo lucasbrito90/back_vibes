@@ -45,8 +45,34 @@ class StoreSceneActionRequest extends FormRequest
                 }
 
                 $this->validateDeviceOwnership($validator);
+                $this->validateActionCapability($validator);
             },
         ];
+    }
+
+    private function validateActionCapability(Validator $validator): void
+    {
+        $deviceId = $this->input('device_id');
+        $actionType = $this->input('action_type');
+
+        if ($deviceId === null || $actionType === null) {
+            return;
+        }
+
+        $device = Device::where('id', $deviceId)
+            ->where('user_id', $this->user()->id)
+            ->first();
+
+        if ($device === null) {
+            return;
+        }
+
+        if (ActionType::isBlockedByDeviceCapabilities($device->capabilities, (string) $actionType)) {
+            $validator->errors()->add(
+                'action_type',
+                'The selected action is not supported by this device.'
+            );
+        }
     }
 
     private function validateDeviceOwnership(Validator $validator): void

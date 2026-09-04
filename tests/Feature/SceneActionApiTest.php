@@ -234,10 +234,15 @@ test('store rejects invalid action_type', function () {
         ->assertJsonValidationErrors(['action_type']);
 });
 
-test('store accepts set_brightness without FormRequest changes beyond ActionType enum', function () {
+test('store accepts set_brightness when device capabilities include brightness', function () {
     $user = saaUser('fb-saa-store-brightness');
     $scene = saaSceneFor($user);
-    $device = saaDeviceFor($user);
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+    $device = Device::factory()->dimmableLight()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+    ]);
 
     saaAuth($user);
 
@@ -249,6 +254,55 @@ test('store accepts set_brightness without FormRequest changes beyond ActionType
         ->assertCreated()
         ->assertJsonPath('data.action_type', ActionType::SetBrightness->value)
         ->assertJsonPath('data.parameters.brightness', 200);
+});
+
+test('store rejects action_type incompatible with device capabilities', function () {
+    $user = saaUser('fb-saa-store-cap-block');
+    $scene = saaSceneFor($user);
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+    $switch = Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+        'type' => 'switch',
+        'capabilities' => [
+            'can_turn_on' => [],
+            'can_turn_off' => [],
+            'can_toggle' => [],
+        ],
+    ]);
+
+    saaAuth($user);
+
+    $this->postJson("/api/scenes/{$scene->id}/actions", [
+        'device_id' => $switch->id,
+        'action_type' => ActionType::SetBrightness->value,
+        'parameters' => ['brightness' => 128],
+    ], saaHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['action_type']);
+});
+
+test('store allows action when device capabilities are null', function () {
+    $user = saaUser('fb-saa-store-cap-null');
+    $scene = saaSceneFor($user);
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+    $device = Device::factory()->withoutCapabilities()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+        'type' => 'switch',
+    ]);
+
+    saaAuth($user);
+
+    $this->postJson("/api/scenes/{$scene->id}/actions", [
+        'device_id' => $device->id,
+        'action_type' => ActionType::SetBrightness->value,
+        'parameters' => ['brightness' => 128],
+    ], saaHeaders())
+        ->assertCreated()
+        ->assertJsonPath('data.action_type', ActionType::SetBrightness->value);
 });
 
 test('cross-user cannot create action on another users scene', function () {
@@ -316,6 +370,63 @@ test('update rejects foreign device', function () {
     ], saaHeaders())
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['device_id']);
+});
+
+test('update rejects action_type incompatible with resolved device capabilities', function () {
+    $user = saaUser('fb-saa-update-cap-block');
+    $scene = saaSceneFor($user);
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+    $switch = Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+        'type' => 'switch',
+        'capabilities' => [
+            'can_turn_on' => [],
+            'can_turn_off' => [],
+            'can_toggle' => [],
+        ],
+    ]);
+
+    $action = SceneAction::factory()->create([
+        'scene_id' => $scene->id,
+        'device_id' => $switch->id,
+        'action_type' => ActionType::TurnOn->value,
+    ]);
+
+    saaAuth($user);
+
+    $this->patchJson("/api/scenes/{$scene->id}/actions/{$action->id}", [
+        'action_type' => ActionType::SetBrightness->value,
+    ], saaHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['action_type']);
+});
+
+test('update allows action_type change when device capabilities are null', function () {
+    $user = saaUser('fb-saa-update-cap-null');
+    $scene = saaSceneFor($user);
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+    $device = Device::factory()->withoutCapabilities()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+        'type' => 'switch',
+    ]);
+
+    $action = SceneAction::factory()->create([
+        'scene_id' => $scene->id,
+        'device_id' => $device->id,
+        'action_type' => ActionType::TurnOn->value,
+    ]);
+
+    saaAuth($user);
+
+    $this->patchJson("/api/scenes/{$scene->id}/actions/{$action->id}", [
+        'action_type' => ActionType::SetBrightness->value,
+    ], saaHeaders())
+        ->assertOk()
+        ->assertJsonPath('data.action_type', ActionType::SetBrightness->value);
 });
 
 test('update rejects action not belonging to scene', function () {
