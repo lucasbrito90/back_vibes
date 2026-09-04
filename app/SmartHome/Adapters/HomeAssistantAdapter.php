@@ -14,6 +14,7 @@ use App\SmartHome\DTOs\DeviceStatusResult;
 use App\SmartHome\DTOs\ProviderDevice;
 use App\SmartHome\Exceptions\ProviderConnectionException;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
+use App\SmartHome\ProviderRequestTimeout;
 use App\SmartHome\ProviderType;
 use App\Telemetry\SmartHome\SmartHomeProviderTelemetry;
 use Illuminate\Http\Client\ConnectionException;
@@ -234,17 +235,12 @@ final class HomeAssistantAdapter implements ProviderAdapter
         return Http::withToken($token)
             ->acceptJson()
             ->asJson()
-            ->timeout($this->timeout());
+            ->timeout(ProviderRequestTimeout::forSlug($this->providerSlug()));
     }
 
     private function baseUrl(ProviderConnection $connection): string
     {
         return rtrim((string) ($connection->config['base_url'] ?? ''), '/');
-    }
-
-    private function timeout(): int
-    {
-        return (int) config('smart_home.providers.home_assistant.timeout', 10);
     }
 
     private function providerSlug(): string
