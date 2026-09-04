@@ -22,7 +22,7 @@ class ProviderConnectionFactory extends Factory
     {
         return [
             'user_id' => User::factory(),
-            'name' => 'Home Assistant',
+            'name' => 'Home Assistant '.fake()->uuid(),
             'provider' => ProviderType::HomeAssistant->value,
             'config' => ['base_url' => 'https://ha.example.test'],
             'encrypted_credentials' => Crypt::encryptString(json_encode(['access_token' => 'test-token-'.fake()->uuid()])),

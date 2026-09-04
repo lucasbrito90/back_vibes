@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PresetVibeController;
 use App\Http\Controllers\Api\ProviderConnectionController;
+use App\Http\Controllers\Api\ProviderTypeController;
 use App\Http\Controllers\Api\PushTokenController;
 use App\Http\Controllers\Api\SceneActionController;
 use App\Http\Controllers\Api\SceneController;
@@ -38,6 +39,7 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
 
     Route::apiResource('vibes', VibeController::class);
     Route::apiResource('schedules', ScheduleController::class);
+    Route::get('provider-types', [ProviderTypeController::class, 'index']);
     Route::apiResource('provider-connections', ProviderConnectionController::class);
     Route::post('provider-connections/{providerConnection}/sync', [ProviderConnectionController::class, 'sync'])
         ->name('provider-connections.sync');

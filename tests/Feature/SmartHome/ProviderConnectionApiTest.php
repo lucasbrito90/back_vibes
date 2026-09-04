@@ -6,7 +6,6 @@ use App\Models\ProviderConnection;
 use App\Models\User;
 use App\SmartHome\ConnectionStatus;
 use App\SmartHome\ProviderType;
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Kreait\Firebase\Contract\Auth;
 use Lcobucci\JWT\Token\DataSet;
@@ -221,20 +220,41 @@ test('store rejects missing required fields', function () {
         ->assertJsonValidationErrors(['name', 'provider', 'config', 'encrypted_credentials']);
 });
 
-test('same user cannot create duplicate provider connection', function () {
-    $user = pcUser('fb-pc-store-dup');
+test('same user can create two home assistant connections with different names', function () {
+    $user = pcUser('fb-pc-store-multi-ha');
 
     ProviderConnection::factory()->create([
         'user_id' => $user->id,
+        'name' => 'Home HA',
         'provider' => ProviderType::HomeAssistant->value,
     ]);
 
     pcAuth($user);
 
-    $this->withoutExceptionHandling();
+    $response = $this->postJson('/api/provider-connections', [
+        ...validConnectionPayload(),
+        'name' => 'Office HA',
+    ], pcHeaders())->assertCreated();
 
-    $this->postJson('/api/provider-connections', validConnectionPayload(), pcHeaders());
-})->throws(QueryException::class);
+    expect(ProviderConnection::where('user_id', $user->id)->count())->toBe(2)
+        ->and($response->json('data.name'))->toBe('Office HA')
+        ->and($response->json('data.provider'))->toBe(ProviderType::HomeAssistant->value);
+});
+
+test('same user cannot create duplicate connection name', function () {
+    $user = pcUser('fb-pc-store-dup-name');
+
+    ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'My Home HA',
+    ]);
+
+    pcAuth($user);
+
+    $this->postJson('/api/provider-connections', validConnectionPayload(), pcHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['name']);
+});
 
 test('different users can each create a home assistant connection', function () {
     $alice = pcUser('fb-pc-store-diff-alice');
@@ -374,6 +394,18 @@ test('user cannot update another users connection', function () {
         ->assertForbidden();
 
     expect($bobConn->fresh()->name)->toBe('Original');
+});
+
+test('update cannot rename connection to duplicate name of same user', function () {
+    $user = pcUser('fb-pc-upd-dup-name');
+    ProviderConnection::factory()->create(['user_id' => $user->id, 'name' => 'Taken']);
+    $conn = ProviderConnection::factory()->create(['user_id' => $user->id, 'name' => 'Mine']);
+
+    pcAuth($user);
+
+    $this->patchJson("/api/provider-connections/{$conn->id}", ['name' => 'Taken'], pcHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['name']);
 });
 
 test('update rejects prohibited status field', function () {

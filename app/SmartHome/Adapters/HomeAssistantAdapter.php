@@ -7,6 +7,7 @@ namespace App\SmartHome\Adapters;
 use App\Models\ProviderConnection;
 use App\SmartHome\Contracts\ProviderAdapter;
 use App\SmartHome\DeviceStatus;
+use App\SmartHome\DeviceType;
 use App\SmartHome\DTOs\ActionResult;
 use App\SmartHome\DTOs\ConnectionHealth;
 use App\SmartHome\DTOs\DeviceStatusResult;
@@ -49,6 +50,7 @@ final class HomeAssistantAdapter implements ProviderAdapter
         'turn_on' => 'turn_on',
         'turn_off' => 'turn_off',
         'toggle' => 'toggle',
+        'set_brightness' => 'turn_on',
     ];
 
     public function listDevices(ProviderConnection $connection): array
@@ -273,11 +275,51 @@ final class HomeAssistantAdapter implements ProviderAdapter
         return new ProviderDevice(
             provider_device_id: $entityId,
             name: is_string($friendlyName) && $friendlyName !== '' ? $friendlyName : $entityId,
-            type: $domain,
+            type: $this->mapDeviceType($domain)->value,
             status: $this->mapStatus($rawState),
             metadata: $metadata,
             last_seen_at: $this->parseTimestamp($state['last_changed'] ?? null),
+            capabilities: $this->deriveMinimalCapabilities($domain),
         );
+    }
+
+    /**
+     * T11 minimal capability derivation — domain-level on/off (and toggle where
+     * applicable). Does not read supported_features; can_set_brightness is
+     * deferred to T16.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function deriveMinimalCapabilities(string $domain): array
+    {
+        $capabilities = [
+            'can_turn_on' => [],
+            'can_turn_off' => [],
+        ];
+
+        if (in_array($domain, ['light', 'switch', 'fan'], true)) {
+            $capabilities['can_toggle'] = [];
+        }
+
+        return $capabilities;
+    }
+
+    /**
+     * Map a Home Assistant entity domain to the IXORA DeviceType vocabulary.
+     *
+     * Unrecognised domains fall back to DeviceType::Other — HA domain strings
+     * must never be written to devices.type (see metadata['domain'] for the
+     * original provider slug).
+     */
+    private function mapDeviceType(string $domain): DeviceType
+    {
+        return match ($domain) {
+            'light' => DeviceType::Lighting,
+            'switch' => DeviceType::Switchable,
+            'media_player' => DeviceType::Media,
+            'fan' => DeviceType::Ventilation,
+            default => DeviceType::Other,
+        };
     }
 
     /**

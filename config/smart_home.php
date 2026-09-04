@@ -1,6 +1,23 @@
 <?php
 
+use App\SmartHome\Adapters\HomeAssistantAdapter;
+
 return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | Smart Home Provider Adapters (ADR-032 decision B)
+    |--------------------------------------------------------------------------
+    |
+    | Slug => FQCN implementing ProviderAdapter. Resolved via
+    | ProviderAdapterRegistry::forSlug(). Add a slug here to register a new
+    | provider — no edits to ProviderAdapterResolver required.
+    |
+    */
+
+    'adapters' => [
+        'home_assistant' => HomeAssistantAdapter::class,
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -13,6 +30,37 @@ return [
     | tuning such as request timeouts and protocol policy.
     |
     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Provider Descriptors
+    |--------------------------------------------------------------------------
+    |
+    | Static metadata exposed via GET /api/provider-types. Describes field
+    | shapes only — never credential values. Slugs must match registered adapters.
+    |
+    */
+
+    'provider_descriptors' => [
+
+        'home_assistant' => [
+            'label' => 'Home Assistant',
+            'config' => [
+                'base_url' => [
+                    'type' => 'string',
+                    'format' => 'url:https',
+                    'required' => true,
+                ],
+            ],
+            'credentials' => [
+                'access_token' => [
+                    'type' => 'string',
+                    'required' => true,
+                ],
+            ],
+        ],
+
+    ],
 
     'providers' => [
 
