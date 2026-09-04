@@ -43,6 +43,16 @@ final class HomeAssistantAdapter implements ProviderAdapter
     private const ACTIONABLE_DOMAINS = ['light', 'switch', 'media_player', 'fan'];
 
     /**
+     * Legacy Home Assistant light supported_features bit for SUPPORT_BRIGHTNESS.
+     *
+     * Documented in HA legacy docs as value 1 (0x01). ADR-033 hypotheses summary
+     * for T16: not validated against a live HA instance — post-2022.5
+     * LightEntityFeature IntFlag compatibility is unknown. Revisit when real
+     * device payloads are available.
+     */
+    private const HA_LIGHT_SUPPORT_BRIGHTNESS = 0x01;
+
+    /**
      * IXORA action type → HA service name. The HA domain is derived from the
      * entity_id, producing service calls like `light.turn_on`.
      */
@@ -279,29 +289,77 @@ final class HomeAssistantAdapter implements ProviderAdapter
             status: $this->mapStatus($rawState),
             metadata: $metadata,
             last_seen_at: $this->parseTimestamp($state['last_changed'] ?? null),
-            capabilities: $this->deriveMinimalCapabilities($domain),
+            capabilities: $this->deriveCapabilities($domain, $attributes),
         );
     }
 
     /**
-     * T11 minimal capability derivation — domain-level on/off (and toggle where
-     * applicable). Does not read supported_features; can_set_brightness is
-     * deferred to T16.
+     * Derive Ixora capabilities from HA domain and entity attributes (ADR-033 §4).
      *
+     * Boolean on/off (and toggle where applicable) are granted per domain without
+     * reading supported_features. can_set_brightness for light requires
+     * supported_features & HA_LIGHT_SUPPORT_BRIGHTNESS — see constant docblock
+     * for validation caveat against live HA payloads.
+     *
+     * @param  array<string, mixed>  $attributes
      * @return array<string, array<string, mixed>>
      */
-    private function deriveMinimalCapabilities(string $domain): array
+    private function deriveCapabilities(string $domain, array $attributes): array
     {
-        $capabilities = [
-            'can_turn_on' => [],
-            'can_turn_off' => [],
-        ];
+        $capabilities = match ($domain) {
+            'light', 'switch', 'fan' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+                'can_toggle' => [],
+            ],
+            'media_player' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+            ],
+            default => [],
+        };
 
-        if (in_array($domain, ['light', 'switch', 'fan'], true)) {
-            $capabilities['can_toggle'] = [];
+        if ($domain === 'light' && $this->lightSupportsBrightness($attributes)) {
+            $capabilities['can_set_brightness'] = [
+                'min' => 0,
+                'max' => 255,
+                'step' => 1,
+            ];
         }
 
         return $capabilities;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function lightSupportsBrightness(array $attributes): bool
+    {
+        $mask = $this->parseSupportedFeaturesMask($attributes);
+
+        return $mask !== null && ($mask & self::HA_LIGHT_SUPPORT_BRIGHTNESS) !== 0;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function parseSupportedFeaturesMask(array $attributes): ?int
+    {
+        if (! array_key_exists('supported_features', $attributes)) {
+            return null;
+        }
+
+        $features = $attributes['supported_features'];
+
+        if (is_int($features)) {
+            return $features;
+        }
+
+        if (is_string($features) && ctype_digit($features)) {
+            return (int) $features;
+        }
+
+        return null;
     }
 
     /**

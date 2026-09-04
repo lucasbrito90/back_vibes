@@ -195,12 +195,12 @@ test('listDevices maps each actionable HA domain to IXORA DeviceType without ech
         ->and($byId['fan.bedroom']->metadata['domain'])->toBe('fan');
 });
 
-test('listDevices derives minimal capabilities for actionable domains', function () {
+test('listDevices derives domain capabilities for actionable domains', function () {
     Http::fake([HA_BASE.'/api/states' => Http::response([
-        ['entity_id' => 'light.living_room', 'state' => 'on', 'attributes' => ['supported_features' => 1]],
+        ['entity_id' => 'light.living_room', 'state' => 'on', 'attributes' => ['supported_features' => 0]],
         ['entity_id' => 'switch.kitchen', 'state' => 'off', 'attributes' => []],
-        ['entity_id' => 'media_player.tv', 'state' => 'playing', 'attributes' => []],
-        ['entity_id' => 'fan.bedroom', 'state' => 'on', 'attributes' => []],
+        ['entity_id' => 'media_player.tv', 'state' => 'playing', 'attributes' => ['supported_features' => 512]],
+        ['entity_id' => 'fan.bedroom', 'state' => 'on', 'attributes' => ['supported_features' => 8]],
     ], 200)]);
 
     $byId = indexDevices(haAdapter()->listDevices(haConnection()));
@@ -210,6 +210,7 @@ test('listDevices derives minimal capabilities for actionable domains', function
         'can_turn_off' => [],
         'can_toggle' => [],
     ])
+        ->and($byId['light.living_room']->capabilities)->not->toHaveKey('can_set_brightness')
         ->and($byId['switch.kitchen']->capabilities)->toMatchArray([
             'can_turn_on' => [],
             'can_turn_off' => [],
@@ -220,22 +221,87 @@ test('listDevices derives minimal capabilities for actionable domains', function
             'can_turn_off' => [],
         ])
         ->and($byId['media_player.tv']->capabilities)->not->toHaveKey('can_toggle')
+        ->and($byId['media_player.tv']->capabilities)->not->toHaveKey('can_set_brightness')
         ->and($byId['fan.bedroom']->capabilities)->toMatchArray([
             'can_turn_on' => [],
             'can_turn_off' => [],
             'can_toggle' => [],
-        ]);
+        ])
+        ->and($byId['fan.bedroom']->capabilities)->not->toHaveKey('can_set_brightness');
 });
 
-test('listDevices minimal derivation does not infer can_set_brightness even when supported_features is present', function () {
+test('listDevices infers can_set_brightness for light when supported_features has BRIGHTNESS bit', function () {
     Http::fake([HA_BASE.'/api/states' => Http::response([
-        ['entity_id' => 'light.living_room', 'state' => 'on', 'attributes' => ['supported_features' => 1]],
+        ['entity_id' => 'light.living_room', 'state' => 'on', 'attributes' => [
+            'friendly_name' => 'Living Room',
+            'supported_features' => 1,
+        ]],
+    ], 200)]);
+
+    $device = haAdapter()->listDevices(haConnection())[0];
+
+    expect($device->capabilities)->toMatchArray([
+        'can_turn_on' => [],
+        'can_turn_off' => [],
+        'can_toggle' => [],
+        'can_set_brightness' => ['min' => 0, 'max' => 255, 'step' => 1],
+    ])
+        ->and($device->metadata['supported_features'])->toBe(1);
+});
+
+test('listDevices does not infer can_set_brightness for light when BRIGHTNESS bit is absent', function () {
+    Http::fake([HA_BASE.'/api/states' => Http::response([
+        ['entity_id' => 'light.living_room', 'state' => 'on', 'attributes' => [
+            'supported_features' => 44,
+        ]],
     ], 200)]);
 
     $device = haAdapter()->listDevices(haConnection())[0];
 
     expect($device->capabilities)->not->toHaveKey('can_set_brightness')
-        ->and(array_keys($device->capabilities ?? []))->toEqual(['can_turn_on', 'can_turn_off', 'can_toggle']);
+        ->and($device->metadata['supported_features'])->toBe(44);
+});
+
+test('listDevices does not infer can_set_brightness for light without supported_features', function () {
+    Http::fake([HA_BASE.'/api/states' => Http::response([
+        ['entity_id' => 'light.living_room', 'state' => 'on', 'attributes' => []],
+    ], 200)]);
+
+    $device = haAdapter()->listDevices(haConnection())[0];
+
+    expect($device->capabilities)->not->toHaveKey('can_set_brightness')
+        ->and($device->metadata)->not->toHaveKey('supported_features');
+});
+
+test('listDevices treats supported_features zero as valid without inferring brightness', function () {
+    Http::fake([HA_BASE.'/api/states' => Http::response([
+        ['entity_id' => 'light.living_room', 'state' => 'on', 'attributes' => [
+            'supported_features' => 0,
+        ]],
+    ], 200)]);
+
+    $device = haAdapter()->listDevices(haConnection())[0];
+
+    expect($device->capabilities)->not->toHaveKey('can_set_brightness')
+        ->and($device->metadata['supported_features'])->toBe(0);
+});
+
+test('listDevices keeps raw non-numeric supported_features in metadata without inferring brightness', function () {
+    Http::fake([HA_BASE.'/api/states' => Http::response([
+        ['entity_id' => 'light.living_room', 'state' => 'on', 'attributes' => [
+            'supported_features' => 'legacy-flag',
+        ]],
+    ], 200)]);
+
+    $device = haAdapter()->listDevices(haConnection())[0];
+
+    expect($device->metadata['supported_features'])->toBe('legacy-flag')
+        ->and($device->capabilities)->not->toHaveKey('can_set_brightness')
+        ->and($device->capabilities)->toMatchArray([
+            'can_turn_on' => [],
+            'can_turn_off' => [],
+            'can_toggle' => [],
+        ]);
 });
 
 test('listDevices capabilities use ADR-033 map format not a flat list', function () {
