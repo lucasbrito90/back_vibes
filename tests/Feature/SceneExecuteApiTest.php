@@ -111,7 +111,7 @@ it('enqueues one job per action and returns dispatch summary', function () {
 
     $response = $this->postJson("/api/scenes/{$scene->id}/execute", [], sceneExecHeaders())
         ->assertOk()
-        ->assertJsonStructure(['data' => ['scene_id', 'dispatched', 'skipped', 'action_ids']]);
+        ->assertJsonStructure(['data' => ['scene_id', 'dispatched', 'skipped', 'action_ids', 'scene_execution_id']]);
 
     expect($response->json('data.scene_id'))->toBe($scene->id)
         ->and($response->json('data.dispatched'))->toBe(3)

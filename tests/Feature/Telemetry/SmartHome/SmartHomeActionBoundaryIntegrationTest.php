@@ -7,8 +7,6 @@ use App\Models\Device;
 use App\Models\ProviderConnection;
 use App\Models\Scene;
 use App\Models\SceneAction;
-use App\PushNotifications\Services\PushNotificationEvents;
-use App\SmartHome\ProviderAdapterResolver;
 use App\Telemetry\Context\TraceContext;
 use App\Telemetry\Contracts\Span;
 use App\Telemetry\Contracts\Tracer;
@@ -17,6 +15,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Tests\Support\Telemetry\RecordingTracer;
 use Tests\Support\Telemetry\TelemetryRecorder;
 
@@ -84,11 +83,7 @@ function actionBoundaryAction(array $connOverrides = [], array $deviceOverrides 
 function runActionBoundaryJob(SceneAction|int $action): void
 {
     $id = $action instanceof SceneAction ? $action->id : $action;
-    (new SceneActionJob($id))->handle(
-        app(ProviderAdapterResolver::class),
-        app(PushNotificationEvents::class),
-        app(SmartHomeActionTelemetry::class),
-    );
+    app()->call([new SceneActionJob($id, (string) Str::uuid()), 'handle']);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

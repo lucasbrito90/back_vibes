@@ -8,16 +8,24 @@ use App\Models\Device;
 use App\Models\ProviderConnection;
 use App\Models\Scene;
 use App\Models\SceneAction;
-use App\PushNotifications\Services\PushNotificationEvents;
-use App\SmartHome\ProviderAdapterResolver;
+use App\Models\SceneActionExecution;
+use App\Telemetry\Contracts\Meter;
+use App\Telemetry\Contracts\Tracer;
+use App\Telemetry\SmartHome\SmartHomeActionOutcome;
 use App\Telemetry\SmartHome\SmartHomeActionTelemetry;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Tests\Support\SmartHome\ResolverReachProbeAdapter;
+use Tests\Support\Telemetry\RecordingMeter;
+use Tests\Support\Telemetry\RecordingTracer;
+use Tests\Support\Telemetry\TelemetryRecorder;
 
 uses(RefreshDatabase::class);
 
@@ -57,14 +65,20 @@ function sceneJobAction(array $connOverrides = [], array $deviceOverrides = [], 
     ], $actionOverrides));
 }
 
-function runSceneJob(SceneAction|int $action): void
+function runSceneJob(SceneAction|int $action, ?string $sceneExecutionId = null): void
 {
     $id = $action instanceof SceneAction ? $action->id : $action;
-    (new SceneActionJob($id))->handle(
-        app(ProviderAdapterResolver::class),
-        app(PushNotificationEvents::class),
-        app(SmartHomeActionTelemetry::class),
-    );
+    $executionId = $sceneExecutionId ?? (string) Str::uuid();
+
+    app()->call([new SceneActionJob($id, $executionId), 'handle']);
+}
+
+function latestExecutionFor(int $sceneActionId): ?SceneActionExecution
+{
+    return SceneActionExecution::query()
+        ->where('scene_action_id', $sceneActionId)
+        ->latest('id')
+        ->first();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -433,4 +447,175 @@ it('only performs the single provider call routed through the adapter', function
     // through the adapter rather than making ad-hoc HTTP calls.
     Http::assertSentCount(1);
     Http::assertSent(fn (Request $request) => str_contains($request->url(), '/api/services/'));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Execution persistence (ADR-034 / T21)
+// ─────────────────────────────────────────────────────────────────────────────
+
+it('persists success outcome when the provider returns 2xx', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+
+    $sceneExecutionId = (string) Str::uuid();
+    $action = sceneJobAction();
+
+    runSceneJob($action, $sceneExecutionId);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->scene_execution_id)->toBe($sceneExecutionId)
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Success->value)
+        ->and($execution->failure_category)->toBeNull()
+        ->and($execution->http_status_code)->toBe(200)
+        ->and($execution->attempt)->toBe(1);
+});
+
+it('persists failure outcome when the provider returns non-2xx', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
+
+    $action = sceneJobAction();
+
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Failure->value)
+        ->and($execution->failure_category)->toBe('provider_error')
+        ->and($execution->http_status_code)->toBe(500);
+});
+
+it('persists unsupported outcome when the adapter rejects the action type', function () {
+    Http::fake();
+
+    $action = sceneJobAction(actionOverrides: ['action_type' => 'set_color']);
+
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Unsupported->value)
+        ->and($execution->failure_category)->toBe('unsupported_action');
+});
+
+it('persists unsupported outcome when device capabilities block the action', function () {
+    Http::fake();
+    config(['smart_home.adapters.home_assistant' => ResolverReachProbeAdapter::class]);
+    ResolverReachProbeAdapter::reset();
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+                'can_toggle' => [],
+            ],
+        ],
+        actionOverrides: ['action_type' => 'set_brightness'],
+    );
+
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Unsupported->value)
+        ->and($execution->failure_category)->toBe('unsupported_action');
+});
+
+it('persists failure outcome on unexpected resolver errors', function () {
+    Http::fake();
+
+    $action = sceneJobAction(
+        connOverrides: ['provider' => 'unknown_provider'],
+        deviceOverrides: ['provider' => 'unknown_provider'],
+    );
+
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Failure->value)
+        ->and($execution->failure_category)->toBe('unexpected');
+});
+
+it('does not persist when the action is missing at job runtime', function () {
+    Http::fake();
+
+    runSceneJob(999_999);
+
+    expect(SceneActionExecution::query()->count())->toBe(0);
+});
+
+it('does not persist when the device is missing at job runtime', function () {
+    Http::fake();
+
+    $action = sceneJobAction();
+    $actionId = $action->id;
+
+    DB::statement('PRAGMA foreign_keys=OFF');
+    Device::query()->whereKey($action->device_id)->delete();
+    DB::statement('PRAGMA foreign_keys=ON');
+
+    runSceneJob($actionId);
+
+    expect(SceneActionExecution::query()->count())->toBe(0);
+});
+
+it('does not persist when the provider connection is missing at job runtime', function () {
+    Http::fake();
+
+    $action = sceneJobAction();
+    $connectionId = $action->device->provider_connection_id;
+
+    DB::statement('PRAGMA foreign_keys=OFF');
+    ProviderConnection::query()->whereKey($connectionId)->delete();
+    DB::statement('PRAGMA foreign_keys=ON');
+
+    runSceneJob($action);
+
+    expect(SceneActionExecution::query()->count())->toBe(0);
+});
+
+it('stores trace_id from the smart_home.action span when telemetry is active', function () {
+    $recorder = new TelemetryRecorder;
+    app()->bind(Tracer::class, fn () => new RecordingTracer($recorder));
+    app()->bind(Meter::class, fn () => new RecordingMeter($recorder));
+    app()->forgetInstance(SmartHomeActionTelemetry::class);
+
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+
+    $action = sceneJobAction();
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->trace_id)->toBe('4bf92f3577b34da6a3ce929d0e0e4736');
+});
+
+it('still executes the action when execution persistence fails', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+    Log::spy();
+
+    SceneActionExecution::creating(function (): void {
+        throw new RuntimeException('simulated persistence failure');
+    });
+
+    try {
+        $action = sceneJobAction();
+
+        expect(fn () => runSceneJob($action))->not->toThrow(Throwable::class);
+
+        Http::assertSentCount(1);
+        expect(SceneActionExecution::query()->count())->toBe(0);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message) => str_contains($message, 'failed to persist execution row'));
+    } finally {
+        SceneActionExecution::setEventDispatcher(new Dispatcher);
+    }
 });
