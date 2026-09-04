@@ -6,6 +6,7 @@ namespace App\Jobs\SmartHome;
 
 use App\Models\SceneAction;
 use App\PushNotifications\Services\PushNotificationEvents;
+use App\SmartHome\ActionType;
 use App\SmartHome\DTOs\ActionResult;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
 use App\SmartHome\ProviderAdapterResolver;
@@ -106,6 +107,10 @@ final class SceneActionJob implements ShouldQueue
                 SmartHomeActionProvider::fromProviderSlug($connection->provider),
                 SmartHomeActionType::fromActionTypeSlug($action->action_type),
                 function () use ($resolver, $connection, $device, $action) {
+                    if (ActionType::isBlockedByDeviceCapabilities($device->capabilities, $action->action_type)) {
+                        throw UnsupportedSmartHomeActionException::forAction($action->action_type);
+                    }
+
                     $adapter = $resolver->forProvider($connection->provider);
 
                     return $adapter->executeAction(

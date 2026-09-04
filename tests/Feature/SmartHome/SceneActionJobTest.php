@@ -17,6 +17,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Tests\Support\SmartHome\ResolverReachProbeAdapter;
 
 uses(RefreshDatabase::class);
 
@@ -175,6 +176,69 @@ it('handles a provider connection failure as a completed failed result (no throw
 // ─────────────────────────────────────────────────────────────────────────────
 // Graceful handling — unsupported action, missing relations, exceptions
 // ─────────────────────────────────────────────────────────────────────────────
+
+it('blocks dispatch when device capabilities omit the required capability', function () {
+    Http::fake();
+    Log::spy();
+    Bus::fake();
+
+    config(['smart_home.adapters.home_assistant' => ResolverReachProbeAdapter::class]);
+    ResolverReachProbeAdapter::reset();
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+                'can_toggle' => [],
+            ],
+        ],
+        actionOverrides: ['action_type' => 'set_brightness'],
+    );
+
+    runSceneJob($action);
+
+    expect(ResolverReachProbeAdapter::$constructed)->toBeFalse();
+    Http::assertNothingSent();
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context) => str_contains($message, 'unsupported action type')
+            && $context['outcome'] === 'unsupported');
+    Bus::assertNotDispatched(PushNotificationJob::class);
+});
+
+it('dispatches when device capabilities include the required capability', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/light/turn_on' => Http::response([], 200)]);
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+                'can_toggle' => [],
+                'can_set_brightness' => ['min' => 0, 'max' => 255, 'step' => 1],
+            ],
+        ],
+        actionOverrides: ['action_type' => 'set_brightness', 'parameters' => ['brightness' => 200]],
+    );
+
+    runSceneJob($action);
+
+    Http::assertSent(fn (Request $request) => $request->url() === SCENE_JOB_HA_BASE.'/api/services/light/turn_on'
+        && $request['brightness'] === 200);
+});
+
+it('passes through to the adapter when device capabilities are null', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/light/turn_on' => Http::response([], 200)]);
+
+    $action = sceneJobAction(
+        deviceOverrides: ['capabilities' => null],
+        actionOverrides: ['action_type' => 'set_brightness', 'parameters' => ['brightness' => 100]],
+    );
+
+    runSceneJob($action);
+
+    Http::assertSent(fn (Request $request) => $request->url() === SCENE_JOB_HA_BASE.'/api/services/light/turn_on');
+});
 
 it('handles an unsupported action gracefully without HTTP or throw', function () {
     Http::fake();
