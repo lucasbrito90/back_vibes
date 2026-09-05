@@ -15,10 +15,11 @@ function smartHomeProviderTelemetryFiles(): array
     return [
         dirname(__DIR__, 4).'/app/Telemetry/SmartHome/SmartHomeProviderTelemetry.php',
         dirname(__DIR__, 4).'/app/Telemetry/SmartHome/SmartHomeProviderDeviceDomain.php',
+        dirname(__DIR__, 4).'/app/Telemetry/SmartHome/SmartHomeProviderDeviceType.php',
     ];
 }
 
-test('the two files added by Phase 7B.4.4 exist', function () {
+test('the Provider Telemetry files exist', function () {
     foreach (smartHomeProviderTelemetryFiles() as $file) {
         expect(file_exists($file))->toBeTrue("Expected {$file} to exist.");
     }
@@ -71,6 +72,13 @@ test('SmartHomeProviderDeviceDomain is a plain enum with no external imports', f
 
     expect(preg_match('/^use\s+/m', $contents))->toBe(0, 'SmartHomeProviderDeviceDomain.php must have no imports at all.')
         ->and(preg_match('/^enum\s+SmartHomeProviderDeviceDomain:\s*string/m', $contents))->toBe(1);
+});
+
+test('SmartHomeProviderDeviceType is a plain enum with no external imports', function () {
+    $contents = file_get_contents(dirname(__DIR__, 4).'/app/Telemetry/SmartHome/SmartHomeProviderDeviceType.php');
+
+    expect(preg_match('/^use\s+/m', $contents))->toBe(0, 'SmartHomeProviderDeviceType.php must have no imports at all.')
+        ->and(preg_match('/^enum\s+SmartHomeProviderDeviceType:\s*string/m', $contents))->toBe(1);
 });
 
 test('app/Telemetry/SmartHome creates no metrics anywhere, including the new Provider files — no Counter, Histogram, or UpDownCounter contract import', function () {

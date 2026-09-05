@@ -102,9 +102,9 @@ final class SmartHomeProviderTelemetry
      * @param  callable(): TResult  $execute
      * @return TResult
      */
-    public function wrap(?string $deviceDomain, callable $execute): mixed
+    public function wrap(?string $deviceDomain, callable $execute, ?string $deviceType = null): mixed
     {
-        $span = $this->startSpan($deviceDomain);
+        $span = $this->startSpan($deviceDomain, $deviceType);
 
         try {
             $result = $execute();
@@ -131,12 +131,18 @@ final class SmartHomeProviderTelemetry
      * Tracer::activeSpan() and never replaces the active span — additive,
      * not a takeover, exactly like SmartHomeActionTelemetry.
      */
-    private function startSpan(?string $deviceDomain): Span
+    private function startSpan(?string $deviceDomain, ?string $deviceType = null): Span
     {
         try {
-            $attributes = $deviceDomain === null
-                ? []
-                : ['ixora.provider.device_domain' => SmartHomeProviderDeviceDomain::fromDomainSlug($deviceDomain)->value];
+            $attributes = [];
+
+            if ($deviceDomain !== null) {
+                $attributes['ixora.provider.device_domain'] = SmartHomeProviderDeviceDomain::fromDomainSlug($deviceDomain)->value;
+            }
+
+            if ($deviceType !== null) {
+                $attributes['ixora.provider.device_type'] = SmartHomeProviderDeviceType::fromTypeSlug($deviceType)->value;
+            }
 
             return $this->tracer->startSpan(self::SPAN_NAME, $attributes);
         } catch (Throwable) {
