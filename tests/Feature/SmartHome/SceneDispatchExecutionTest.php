@@ -12,6 +12,7 @@ use App\SmartHome\Services\SceneDispatchService;
 use App\SmartHome\Services\VibeSmartHomeDispatchService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
@@ -90,4 +91,49 @@ test('VibeSmartHomeDispatchService returns scene_execution_id even when vibe has
         ->and($result->dispatched)->toBe(0);
 
     Bus::assertNothingDispatched();
+});
+
+test('VibeSmartHomeDispatchService never resolves an adapter or makes HTTP — only enqueues jobs', function () {
+    Http::fake();
+    Bus::fake();
+
+    $connection = ProviderConnection::factory()->create([
+        'config' => ['base_url' => 'https://ha.dispatch-guard.test'],
+    ]);
+    $scene = Scene::factory()->create(['user_id' => $connection->user_id]);
+    $vibe = Vibe::factory()->create(['user_id' => $connection->user_id, 'scene_id' => $scene->id]);
+    $device = Device::factory()->create([
+        'user_id' => $connection->user_id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+    ]);
+
+    SceneAction::factory()->create(['scene_id' => $scene->id, 'device_id' => $device->id]);
+
+    app(VibeSmartHomeDispatchService::class)->dispatch($vibe);
+
+    Bus::assertDispatched(SceneActionJob::class);
+    Http::assertNothingSent();
+});
+
+test('SceneDispatchService never resolves an adapter or makes HTTP — only enqueues jobs', function () {
+    Http::fake();
+    Bus::fake();
+
+    $connection = ProviderConnection::factory()->create([
+        'config' => ['base_url' => 'https://ha.scene-dispatch-guard.test'],
+    ]);
+    $scene = Scene::factory()->create(['user_id' => $connection->user_id]);
+    $device = Device::factory()->create([
+        'user_id' => $connection->user_id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+    ]);
+
+    SceneAction::factory()->create(['scene_id' => $scene->id, 'device_id' => $device->id]);
+
+    app(SceneDispatchService::class)->dispatch($scene);
+
+    Bus::assertDispatched(SceneActionJob::class);
+    Http::assertNothingSent();
 });
