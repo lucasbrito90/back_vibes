@@ -4,6 +4,7 @@ use App\Telemetry\Context\TraceContext;
 use App\Telemetry\Contracts\Span;
 use App\Telemetry\Contracts\Tracer;
 use App\Telemetry\SmartHome\SmartHomeProviderDeviceDomain;
+use App\Telemetry\SmartHome\SmartHomeProviderDeviceType;
 use App\Telemetry\SmartHome\SmartHomeProviderTelemetry;
 use Tests\Support\Telemetry\RecordingTracer;
 use Tests\Support\Telemetry\TelemetryRecorder;
@@ -69,6 +70,31 @@ test('wrap() with a null domain creates a smart_home.provider span with no devic
         ->and($spans[0]['attributes'])->toBe([]);
 });
 
+test('wrap() with a null device type creates a smart_home.provider span with no device_type attribute', function () {
+    $recorder = fakeSmartHomeProviderTelemetry();
+    $telemetry = app(SmartHomeProviderTelemetry::class);
+
+    $telemetry->wrap('light', fn () => 'provider-result');
+
+    $spans = smartHomeProviderSpanCalls($recorder);
+
+    expect($spans)->toHaveCount(1)
+        ->and($spans[0]['attributes'])->not->toHaveKey('ixora.provider.device_type');
+});
+
+test('wrap() creates a smart_home.provider span tagged with the given device type when provided', function () {
+    $recorder = fakeSmartHomeProviderTelemetry();
+    $telemetry = app(SmartHomeProviderTelemetry::class);
+
+    $telemetry->wrap('switch', fn () => 'provider-result', 'switchable');
+
+    $spans = smartHomeProviderSpanCalls($recorder);
+
+    expect($spans)->toHaveCount(1)
+        ->and($spans[0]['attributes']['ixora.provider.device_domain'])->toBe('switch')
+        ->and($spans[0]['attributes']['ixora.provider.device_type'])->toBe('switchable');
+});
+
 test('wrap() normalizes an unrecognized domain slug to other', function () {
     $recorder = fakeSmartHomeProviderTelemetry();
     $telemetry = app(SmartHomeProviderTelemetry::class);
@@ -98,18 +124,21 @@ test('wrap() tags each of the four known actionable domains distinctly', functio
     ]);
 });
 
-// 2. Only the one allowed attribute is ever set — no forbidden fields, no
+// 2. Only the allowed attributes are ever set — no forbidden fields, no
 // url/method/status/duration (already owned by opentelemetry-auto-guzzle),
 // no outcome/provider duplicate of smart_home.action's own attributes.
 test('wrap() never sets a forbidden or duplicated attribute', function () {
     $recorder = fakeSmartHomeProviderTelemetry();
     $telemetry = app(SmartHomeProviderTelemetry::class);
 
-    $telemetry->wrap('light', fn () => 'ignored');
+    $telemetry->wrap('light', fn () => 'ignored', 'lighting');
 
     $attributes = array_merge($recorder->startSpanCalls[0]['attributes'], $recorder->mergedSpanAttributes());
 
-    expect(array_keys($attributes))->toEqualCanonicalizing(['ixora.provider.device_domain']);
+    expect(array_keys($attributes))->toEqualCanonicalizing([
+        'ixora.provider.device_domain',
+        'ixora.provider.device_type',
+    ]);
 
     $forbidden = [
         'action_id', 'device_id', 'entity_id', 'provider_device_id', 'schedule_id',
@@ -119,11 +148,11 @@ test('wrap() never sets a forbidden or duplicated attribute', function () {
     ];
 
     foreach (array_keys($attributes) as $key) {
-        // Note: "provider" itself is allowed as part of the
         // ixora.provider.* namespace prefix — what is forbidden is a
         // duplicate of smart_home.action's own ixora.action.provider
-        // *value space* (checked separately: the only key here is
-        // ixora.provider.device_domain, never ixora.provider.name).
+        // *value space* (checked separately: the only keys here are
+        // ixora.provider.device_domain and ixora.provider.device_type,
+        // never ixora.provider.name).
         foreach ($forbidden as $needle) {
             expect(str_contains($key, $needle))->toBeFalse("Attribute key [{$key}] must not contain forbidden fragment [{$needle}].");
         }
@@ -373,6 +402,36 @@ test('wrap() never records a counter, histogram, or up-down counter', function (
         ->and($recorder->upDownCounterCalls)->toBe([]);
 });
 
+test('wrap() normalizes an unrecognized device type slug to other', function () {
+    $recorder = fakeSmartHomeProviderTelemetry();
+    $telemetry = app(SmartHomeProviderTelemetry::class);
+
+    $telemetry->wrap('light', fn () => null, 'vacuum');
+
+    $spans = smartHomeProviderSpanCalls($recorder);
+
+    expect($spans[0]['attributes']['ixora.provider.device_type'])->toBe('other');
+});
+
+test('wrap() tags each of the five known device types distinctly', function () {
+    $recorder = fakeSmartHomeProviderTelemetry();
+    $telemetry = app(SmartHomeProviderTelemetry::class);
+
+    foreach (['lighting', 'switchable', 'media', 'ventilation', 'other'] as $type) {
+        $telemetry->wrap('light', fn () => null, $type);
+    }
+
+    $spans = smartHomeProviderSpanCalls($recorder);
+
+    expect(array_column($spans, 'attributes'))->toEqualCanonicalizing([
+        ['ixora.provider.device_domain' => 'light', 'ixora.provider.device_type' => 'lighting'],
+        ['ixora.provider.device_domain' => 'light', 'ixora.provider.device_type' => 'switchable'],
+        ['ixora.provider.device_domain' => 'light', 'ixora.provider.device_type' => 'media'],
+        ['ixora.provider.device_domain' => 'light', 'ixora.provider.device_type' => 'ventilation'],
+        ['ixora.provider.device_domain' => 'light', 'ixora.provider.device_type' => 'other'],
+    ]);
+});
+
 // 9. Domain slug normalization — the Telemetry-layer enum, not a domain constant.
 test('SmartHomeProviderDeviceDomain::fromDomainSlug maps the four known domains and normalizes any unknown slug to Other', function () {
     expect(SmartHomeProviderDeviceDomain::fromDomainSlug('light'))->toBe(SmartHomeProviderDeviceDomain::Light)
@@ -381,4 +440,15 @@ test('SmartHomeProviderDeviceDomain::fromDomainSlug maps the four known domains 
         ->and(SmartHomeProviderDeviceDomain::fromDomainSlug('fan'))->toBe(SmartHomeProviderDeviceDomain::Fan)
         ->and(SmartHomeProviderDeviceDomain::fromDomainSlug('sensor'))->toBe(SmartHomeProviderDeviceDomain::Other)
         ->and(SmartHomeProviderDeviceDomain::fromDomainSlug('anything-unrecognized'))->toBe(SmartHomeProviderDeviceDomain::Other);
+});
+
+// 10. Device type slug normalization — the Telemetry-layer enum, not a domain constant.
+test('SmartHomeProviderDeviceType::fromTypeSlug maps the five known types and normalizes any unknown slug to Other', function () {
+    expect(SmartHomeProviderDeviceType::fromTypeSlug('lighting'))->toBe(SmartHomeProviderDeviceType::Lighting)
+        ->and(SmartHomeProviderDeviceType::fromTypeSlug('switchable'))->toBe(SmartHomeProviderDeviceType::Switchable)
+        ->and(SmartHomeProviderDeviceType::fromTypeSlug('media'))->toBe(SmartHomeProviderDeviceType::Media)
+        ->and(SmartHomeProviderDeviceType::fromTypeSlug('ventilation'))->toBe(SmartHomeProviderDeviceType::Ventilation)
+        ->and(SmartHomeProviderDeviceType::fromTypeSlug('other'))->toBe(SmartHomeProviderDeviceType::Other)
+        ->and(SmartHomeProviderDeviceType::fromTypeSlug('sensor'))->toBe(SmartHomeProviderDeviceType::Other)
+        ->and(SmartHomeProviderDeviceType::fromTypeSlug('anything-unrecognized'))->toBe(SmartHomeProviderDeviceType::Other);
 });

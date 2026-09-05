@@ -113,28 +113,34 @@ final class HomeAssistantAdapter implements ProviderAdapter
         // Business Telemetry boundary (Phase 7B.6): mirrors executeAction()
         // — a single device, so the span carries the same device_domain
         // attribute derived the same way.
-        return $this->providerTelemetry->wrap($this->domainFor($deviceId), function () use ($connection, $deviceId) {
-            try {
-                $response = $this->client($connection)->get($this->baseUrl($connection)."/api/states/{$deviceId}");
-            } catch (ConnectionException) {
-                return $this->unknownStatus($deviceId);
-            }
+        $domain = $this->domainFor($deviceId);
 
-            if (! $response->successful()) {
-                return $this->unknownStatus($deviceId);
-            }
+        return $this->providerTelemetry->wrap(
+            $domain,
+            function () use ($connection, $deviceId) {
+                try {
+                    $response = $this->client($connection)->get($this->baseUrl($connection)."/api/states/{$deviceId}");
+                } catch (ConnectionException) {
+                    return $this->unknownStatus($deviceId);
+                }
 
-            $data = (array) $response->json();
-            $rawState = isset($data['state']) ? (string) $data['state'] : null;
+                if (! $response->successful()) {
+                    return $this->unknownStatus($deviceId);
+                }
 
-            return new DeviceStatusResult(
-                provider_device_id: isset($data['entity_id']) ? (string) $data['entity_id'] : $deviceId,
-                status: $this->mapStatus($rawState),
-                raw_state: $rawState,
-                attributes: isset($data['attributes']) && is_array($data['attributes']) ? $data['attributes'] : [],
-                last_changed: isset($data['last_changed']) ? (string) $data['last_changed'] : null,
-            );
-        });
+                $data = (array) $response->json();
+                $rawState = isset($data['state']) ? (string) $data['state'] : null;
+
+                return new DeviceStatusResult(
+                    provider_device_id: isset($data['entity_id']) ? (string) $data['entity_id'] : $deviceId,
+                    status: $this->mapStatus($rawState),
+                    raw_state: $rawState,
+                    attributes: isset($data['attributes']) && is_array($data['attributes']) ? $data['attributes'] : [],
+                    last_changed: isset($data['last_changed']) ? (string) $data['last_changed'] : null,
+                );
+            },
+            $this->mapDeviceType($domain)->value,
+        );
     }
 
     public function executeAction(
@@ -157,30 +163,34 @@ final class HomeAssistantAdapter implements ProviderAdapter
         // action check above, which returns before any provider work
         // begins. See SmartHomeProviderTelemetry's docblock for the full
         // boundary-discovery rationale.
-        return $this->providerTelemetry->wrap($domain, function () use ($connection, $deviceId, $domain, $service, $parameters) {
-            $payload = array_merge(['entity_id' => $deviceId], $parameters);
+        return $this->providerTelemetry->wrap(
+            $domain,
+            function () use ($connection, $deviceId, $domain, $service, $parameters) {
+                $payload = array_merge(['entity_id' => $deviceId], $parameters);
 
-            try {
-                $response = $this->client($connection)
-                    ->post($this->baseUrl($connection)."/api/services/{$domain}/{$service}", $payload);
-            } catch (ConnectionException) {
+                try {
+                    $response = $this->client($connection)
+                        ->post($this->baseUrl($connection)."/api/services/{$domain}/{$service}", $payload);
+                } catch (ConnectionException) {
+                    return new ActionResult(
+                        success: false,
+                        status_code: null,
+                        response: null,
+                        error_message: 'Provider connection failed.',
+                    );
+                }
+
+                $body = $response->json();
+
                 return new ActionResult(
-                    success: false,
-                    status_code: null,
-                    response: null,
-                    error_message: 'Provider connection failed.',
+                    success: $response->successful(),
+                    status_code: $response->status(),
+                    response: is_array($body) ? $body : null,
+                    error_message: $response->successful() ? null : 'Provider returned status '.$response->status().'.',
                 );
-            }
-
-            $body = $response->json();
-
-            return new ActionResult(
-                success: $response->successful(),
-                status_code: $response->status(),
-                response: is_array($body) ? $body : null,
-                error_message: $response->successful() ? null : 'Provider returned status '.$response->status().'.',
-            );
-        });
+            },
+            $this->mapDeviceType($domain)->value,
+        );
     }
 
     public function testConnection(ProviderConnection $connection): ConnectionHealth

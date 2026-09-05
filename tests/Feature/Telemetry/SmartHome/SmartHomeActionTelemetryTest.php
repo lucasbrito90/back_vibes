@@ -751,9 +751,15 @@ test('a broken Counter/Histogram (registration succeeds, add()/record() throws) 
 });
 
 // 10. Provider slug normalization — the Telemetry-layer enum, not the domain one.
+// T24: reserved ADR-032 slugs (tuya, philips_hue, …) now map to their own cases
+// instead of collapsing to Future; Future is only for genuinely unknown slugs.
 test('SmartHomeActionProvider::fromProviderSlug maps the known slug and normalizes any unknown slug to Future', function () {
     expect(SmartHomeActionProvider::fromProviderSlug('home_assistant'))->toBe(SmartHomeActionProvider::HomeAssistant)
-        ->and(SmartHomeActionProvider::fromProviderSlug('tuya'))->toBe(SmartHomeActionProvider::Future)
-        ->and(SmartHomeActionProvider::fromProviderSlug('philips_hue'))->toBe(SmartHomeActionProvider::Future)
+        ->and(SmartHomeActionProvider::fromProviderSlug('tuya'))->toBe(SmartHomeActionProvider::Tuya)
+        ->and(SmartHomeActionProvider::fromProviderSlug('philips_hue'))->toBe(SmartHomeActionProvider::PhilipsHue)
+        ->and(SmartHomeActionProvider::fromProviderSlug('alexa'))->toBe(SmartHomeActionProvider::Alexa)
+        ->and(SmartHomeActionProvider::fromProviderSlug('google_home'))->toBe(SmartHomeActionProvider::GoogleHome)
+        ->and(SmartHomeActionProvider::fromProviderSlug('matter'))->toBe(SmartHomeActionProvider::Matter)
+        ->and(SmartHomeActionProvider::fromProviderSlug('unknown_vendor'))->toBe(SmartHomeActionProvider::Future)
         ->and(SmartHomeActionProvider::fromProviderSlug('anything-unrecognized'))->toBe(SmartHomeActionProvider::Future);
 });

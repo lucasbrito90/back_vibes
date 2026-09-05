@@ -6,27 +6,31 @@ namespace App\Telemetry\SmartHome;
 
 /**
  * Bounded classification of which provider a SceneActionJob execution
- * targets, for the `ixora.action.provider` span attribute only.
+ * targets, for the `ixora.action.provider` span attribute and the
+ * `provider` label on ixora.smart_home.action.* metrics.
  *
  * Deliberately a Telemetry-layer enum, not a re-export of
  * App\SmartHome\ProviderType — this module never imports that domain enum
  * (Dependency Rule: Telemetry depends only on Telemetry Contracts). The
  * caller (SceneActionJob) passes the raw provider slug string it already
- * has (`$connection->provider`) to fromProviderSlug(), which normalizes any
- * value this Telemetry layer does not explicitly know about to the reserved
- * Future case — matching the enum-reservation convention already used
- * elsewhere in this Telemetry layer (e.g.
- * App\Telemetry\SmartHome\SmartHomeDispatchEntryPoint::Future).
+ * has (`$connection->provider`) to fromProviderSlug(), which maps each
+ * ADR-032 reserved slug to its own case via tryFrom() and normalizes any
+ * genuinely unknown slug to the reserved Future case — matching the
+ * enum-reservation convention already used elsewhere in this Telemetry
+ * layer (e.g. App\Telemetry\SmartHome\SmartHomeActionType::Other).
  *
- * App\SmartHome\ProviderType itself reserves several not-yet-MVP-supported
- * provider slugs (tuya, philips_hue, alexa, google_home, matter) — every one
- * of those normalizes to Future here today, keeping this attribute's
- * cardinality bounded to exactly two values regardless of how many reserved
- * domain slugs exist.
+ * App\SmartHome\ProviderType reserves the same slug strings mirrored here
+ * (home_assistant, tuya, philips_hue, alexa, google_home, matter). Future
+ * remains the fallback only for slugs outside that reserved set.
  */
 enum SmartHomeActionProvider: string
 {
     case HomeAssistant = 'home_assistant';
+    case Tuya = 'tuya';
+    case PhilipsHue = 'philips_hue';
+    case Alexa = 'alexa';
+    case GoogleHome = 'google_home';
+    case Matter = 'matter';
     case Future = 'future';
 
     public static function fromProviderSlug(string $slug): self
