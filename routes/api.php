@@ -44,6 +44,8 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::apiResource('provider-connections', ProviderConnectionController::class);
     Route::post('provider-connections/{providerConnection}/sync', [ProviderConnectionController::class, 'sync'])
         ->name('provider-connections.sync');
+    Route::post('provider-connections/{providerConnection}/devices/sync', [ProviderConnectionController::class, 'syncReportedDevices'])
+        ->name('provider-connections.devices.sync');
     Route::apiResource('devices', DeviceController::class);
     Route::apiResource('scenes', SceneController::class);
 
