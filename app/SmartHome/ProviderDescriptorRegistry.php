@@ -8,17 +8,18 @@ use App\SmartHome\DTOs\ProviderDescriptor;
 use InvalidArgumentException;
 
 /**
- * Exposes provider descriptors for slugs registered in ProviderAdapterRegistry.
+ * Exposes provider descriptors for slugs registered as known providers
+ * (config('smart_home.known_providers') — ADR-036 Decision 3).
  *
- * A slug present in the adapter map but missing from provider_descriptors config
- * is a boot-time configuration error.
+ * Deliberately independent of ProviderAdapterRegistry: identity/metadata is
+ * a superset of server-side adapter registration, not derived from it. A
+ * known provider (e.g. google_home) may have no ProviderAdapter at all.
+ *
+ * A slug present in known_providers but missing from provider_descriptors
+ * config is a boot-time configuration error.
  */
 final class ProviderDescriptorRegistry
 {
-    public function __construct(
-        private readonly ProviderAdapterRegistry $adapterRegistry,
-    ) {}
-
     /**
      * @return list<ProviderDescriptor>
      */
@@ -26,7 +27,7 @@ final class ProviderDescriptorRegistry
     {
         $descriptors = [];
 
-        foreach ($this->adapterRegistry->registeredSlugs() as $slug) {
+        foreach ($this->knownSlugs() as $slug) {
             $descriptors[] = $this->forSlug($slug);
         }
 
@@ -35,7 +36,7 @@ final class ProviderDescriptorRegistry
 
     public function forSlug(string $slug): ProviderDescriptor
     {
-        if (! in_array($slug, $this->adapterRegistry->registeredSlugs(), true)) {
+        if (! in_array($slug, $this->knownSlugs(), true)) {
             throw new InvalidArgumentException(
                 'No descriptor for unregistered smart home provider ['.$slug.'].'
             );
@@ -51,5 +52,16 @@ final class ProviderDescriptorRegistry
         }
 
         return ProviderDescriptor::fromConfigArray($slug, $config);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function knownSlugs(): array
+    {
+        /** @var mixed $slugs */
+        $slugs = config('smart_home.known_providers', []);
+
+        return is_array($slugs) ? array_values($slugs) : [];
     }
 }

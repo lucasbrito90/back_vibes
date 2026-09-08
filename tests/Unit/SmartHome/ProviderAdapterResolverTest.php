@@ -70,11 +70,13 @@ test('descriptor registry returns home_assistant descriptor for registered slug'
         ->and($descriptor->credentials)->toHaveKey('access_token');
 });
 
-test('descriptor registry all returns only registered slugs', function () {
+test('descriptor registry all returns known providers, a superset of adapter-registered slugs (ADR-036 Decision 3)', function () {
     $slugs = array_map(
         fn ($descriptor) => $descriptor->slug,
         app(ProviderDescriptorRegistry::class)->all(),
     );
 
-    expect($slugs)->toBe(['home_assistant']);
+    // google_home is known (has a descriptor) without being adapter-registered.
+    expect($slugs)->toBe(['home_assistant', 'google_home'])
+        ->and(makeRegistry()->registeredSlugs())->toBe(['home_assistant']);
 });
