@@ -20,5 +20,12 @@ final readonly class SmartHomeDispatchResult
         public int $skipped,
         public array $action_ids,
         public string $scene_execution_id,
+        /**
+         * Actions skipped because their provider does not declare
+         * ScheduledExecution capability (ADR-036 Decision 5). Only non-zero
+         * when dispatch() is called with requireScheduledExecution = true.
+         * Never included in the manual-dispatch API response body.
+         */
+        public int $skipped_unsupported_execution = 0,
     ) {}
 }

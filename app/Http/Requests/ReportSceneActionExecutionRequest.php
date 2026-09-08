@@ -45,16 +45,24 @@ class ReportSceneActionExecutionRequest extends FormRequest
     }
 
     /**
-     * Outcome values derived from SmartHomeActionOutcome — not hardcoded, so new
-     * cases automatically extend the allowed vocabulary.
+     * Outcome values accepted from the mobile client — derived from
+     * SmartHomeActionOutcome, minus SkippedUnsupportedExecution which is
+     * generated server-side by the scheduler (ADR-036 Decision 5) and is
+     * semantically meaningless as a client-reported value: a mobile runtime
+     * executes the action itself and never "skips" it for scheduled-execution
+     * reasons (that decision is made server-side, before the action reaches
+     * the device).
      *
      * @return list<string>
      */
     private static function allowedOutcomes(): array
     {
-        return array_map(
+        return array_values(array_map(
             static fn (SmartHomeActionOutcome $outcome): string => $outcome->value,
-            SmartHomeActionOutcome::cases(),
-        );
+            array_filter(
+                SmartHomeActionOutcome::cases(),
+                static fn (SmartHomeActionOutcome $outcome): bool => $outcome !== SmartHomeActionOutcome::SkippedUnsupportedExecution,
+            ),
+        ));
     }
 }
