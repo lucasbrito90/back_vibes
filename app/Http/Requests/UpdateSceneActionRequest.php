@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests;
 
 use App\Models\Device;
+use App\Models\SceneAction;
 use App\SmartHome\ActionType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -45,8 +46,37 @@ class UpdateSceneActionRequest extends FormRequest
                 }
 
                 $this->validateDeviceOwnership($validator);
+                $this->validateActionCapability($validator);
             },
         ];
+    }
+
+    private function validateActionCapability(Validator $validator): void
+    {
+        /** @var SceneAction|null $existing */
+        $existing = $this->route('action');
+
+        $deviceId = $this->input('device_id') ?? $existing?->device_id;
+        $actionType = $this->input('action_type') ?? $existing?->action_type;
+
+        if ($deviceId === null || $actionType === null) {
+            return;
+        }
+
+        $device = Device::where('id', $deviceId)
+            ->where('user_id', $this->user()->id)
+            ->first();
+
+        if ($device === null) {
+            return;
+        }
+
+        if (ActionType::isBlockedByDeviceCapabilities($device->capabilities, (string) $actionType)) {
+            $validator->errors()->add(
+                'action_type',
+                'The selected action is not supported by this device.'
+            );
+        }
     }
 
     private function validateDeviceOwnership(Validator $validator): void

@@ -32,6 +32,12 @@ interface ProviderAdapter
     /**
      * List all actionable devices exposed by this connection.
      *
+     * Each returned {@see ProviderDevice} must include a `capabilities` map when
+     * the adapter can derive supported actions (ADR-033). Keys are Ixora capability
+     * strings (`can_turn_on`, `can_turn_off`, `can_toggle`, `can_set_brightness`);
+     * values are parameter constraint objects (empty `{}` for boolean capabilities).
+     * Null `capabilities` means the provider did not return derivable data.
+     *
      * @return list<ProviderDevice>
      *
      * @throws ProviderConnectionException When the provider is unreachable or errors.

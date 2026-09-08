@@ -23,6 +23,7 @@ class DeviceResource extends JsonResource
             'metadata' => $this->metadata,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
+            'capabilities' => $this->capabilities,
         ];
     }
 }

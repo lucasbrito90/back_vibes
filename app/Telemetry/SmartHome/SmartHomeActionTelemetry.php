@@ -180,6 +180,38 @@ final class SmartHomeActionTelemetry
         callable $classifyResult,
         callable $classifyException,
     ): mixed {
+        $wrapped = $this->wrapWithMetadata(
+            $provider,
+            $actionType,
+            $execute,
+            $classifyResult,
+            $classifyException,
+        );
+
+        if ($wrapped->thrownException !== null) {
+            throw $wrapped->thrownException;
+        }
+
+        return $wrapped->result;
+    }
+
+    /**
+     * Same boundary as wrap(), but returns outcome/trace/duration metadata and
+     * never rethrows — callers inspect {@see SmartHomeActionWrapResult::$thrownException}.
+     *
+     * @template TResult
+     *
+     * @param  callable(): TResult  $execute
+     * @param  callable(TResult): SmartHomeActionOutcome  $classifyResult
+     * @param  callable(Throwable): SmartHomeActionOutcome  $classifyException
+     */
+    public function wrapWithMetadata(
+        SmartHomeActionProvider $provider,
+        SmartHomeActionType $actionType,
+        callable $execute,
+        callable $classifyResult,
+        callable $classifyException,
+    ): SmartHomeActionWrapResult {
         $span = $this->startSpan($provider);
         $startedAt = hrtime(true);
 
@@ -192,27 +224,59 @@ final class SmartHomeActionTelemetry
                 $span->setAttribute('ixora.action.outcome', $outcome->value);
                 $span->recordException($exception);
 
-                // Business Failure Semantics (Phase 7B.4.5): `unsupported`
-                // is a recognized, expected business outcome — analogous to
-                // an HTTP 4xx — never a span error. Every other exception
-                // path (failure, unknown) still marks the span ERROR.
                 if ($outcome !== SmartHomeActionOutcome::Unsupported) {
                     $span->setError();
                 }
             });
+
+            $traceId = $this->captureTraceId();
+            $durationMs = $this->durationMsSince($startedAt);
+
             $this->safely(fn () => $this->recordMetrics($outcome, $provider, $actionType, $startedAt));
             $this->safely(fn () => $span->end());
 
-            throw $exception;
+            return new SmartHomeActionWrapResult(
+                result: null,
+                outcome: $outcome,
+                traceId: $traceId,
+                durationMs: $durationMs,
+                thrownException: $exception,
+            );
         }
 
         $outcome = $this->classify($classifyResult, $result);
+        $traceId = $this->captureTraceId();
+        $durationMs = $this->durationMsSince($startedAt);
 
         $this->safely(fn () => $span->setAttribute('ixora.action.outcome', $outcome->value));
         $this->safely(fn () => $this->recordMetrics($outcome, $provider, $actionType, $startedAt));
         $this->safely(fn () => $span->end());
 
-        return $result;
+        return new SmartHomeActionWrapResult(
+            result: $result,
+            outcome: $outcome,
+            traceId: $traceId,
+            durationMs: $durationMs,
+            thrownException: null,
+        );
+    }
+
+    private function captureTraceId(): ?string
+    {
+        try {
+            return $this->tracer->currentTraceId();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function durationMsSince(int $startedAt): ?int
+    {
+        try {
+            return (int) round((hrtime(true) - $startedAt) / 1_000_000);
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /**

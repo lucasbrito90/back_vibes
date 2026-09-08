@@ -5,6 +5,7 @@ use App\Http\Middleware\EnsureDiagnosticsEnvironment;
 use App\Http\Middleware\FirebaseAuthenticate;
 use App\Http\Middleware\HttpTelemetryMiddleware;
 use Fruitcake\Cors\CorsService;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -18,6 +19,9 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withSchedule(function (Schedule $schedule): void {
+        $schedule->command('smart-home:prune-executions')->dailyAt('03:00');
+    })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'firebase.auth' => FirebaseAuthenticate::class,

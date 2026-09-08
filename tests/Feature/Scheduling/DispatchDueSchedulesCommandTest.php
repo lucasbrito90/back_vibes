@@ -17,6 +17,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 uses(RefreshDatabase::class);
@@ -770,4 +771,17 @@ test('Smart Home dispatch failure on first schedule does not block second schedu
     expect(ScheduleExecution::query()->where('schedule_id', $scheduleOne->id)->count())->toBe(1)
         ->and(ScheduleExecution::query()->where('schedule_id', $scheduleTwo->id)->count())->toBe(1)
         ->and($enqueued)->toHaveCount(1);
+});
+
+test('schedules:dispatch-due never resolves an adapter or makes HTTP when enqueuing Smart Home jobs', function () {
+    Http::fake();
+    Bus::fake();
+
+    $user = dispatchUser();
+    dueScheduleWithDeviceActions($user, actionCount: 2);
+
+    $this->artisan('schedules:dispatch-due')->assertSuccessful();
+
+    Bus::assertDispatched(SceneActionJob::class);
+    Http::assertNothingSent();
 });

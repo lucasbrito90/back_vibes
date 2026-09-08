@@ -8,6 +8,7 @@ use App\Jobs\SmartHome\SceneActionJob;
 use App\Models\Scene;
 use App\Models\SceneAction;
 use App\SmartHome\DTOs\SceneDispatchResult;
+use Illuminate\Support\Str;
 
 /**
  * Dispatches one SceneActionJob per scene action, in sort_order.
@@ -26,6 +27,8 @@ final class SceneDispatchService
 {
     public function dispatch(Scene $scene): SceneDispatchResult
     {
+        $sceneExecutionId = (string) Str::uuid();
+
         $actions = SceneAction::where('scene_id', $scene->id)
             ->with('device')
             ->orderBy('sort_order')
@@ -42,7 +45,7 @@ final class SceneDispatchService
                 continue;
             }
 
-            SceneActionJob::dispatch($action->id);
+            SceneActionJob::dispatch($action->id, $sceneExecutionId);
 
             $dispatched++;
             $actionIds[] = $action->id;
@@ -53,6 +56,7 @@ final class SceneDispatchService
             dispatched: $dispatched,
             skipped: $skipped,
             action_ids: $actionIds,
+            scene_execution_id: $sceneExecutionId,
         );
     }
 }

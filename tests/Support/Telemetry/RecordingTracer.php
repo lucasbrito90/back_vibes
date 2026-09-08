@@ -12,6 +12,8 @@ final class RecordingTracer implements Tracer
 {
     private readonly RecordingActiveSpan $activeSpan;
 
+    private ?TraceContext $startedSpanContext = null;
+
     public function __construct(private readonly TelemetryRecorder $recorder)
     {
         $this->activeSpan = new RecordingActiveSpan($recorder);
@@ -27,7 +29,13 @@ final class RecordingTracer implements Tracer
     {
         $this->recorder->recordStartSpan($name, $attributes);
 
-        $span = new RecordingActiveSpan($this->recorder);
+        $this->startedSpanContext = new TraceContext(
+            traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+            spanId: '00f067aa0ba902b7',
+            isSampled: true,
+        );
+
+        $span = new RecordingStartedSpan($this->recorder, $this);
         $span->setAttributes($attributes);
 
         return $span;
@@ -40,16 +48,21 @@ final class RecordingTracer implements Tracer
 
     public function currentContext(): ?TraceContext
     {
-        return null;
+        return $this->startedSpanContext;
     }
 
     public function currentTraceId(): ?string
     {
-        return null;
+        return $this->startedSpanContext?->traceId;
     }
 
     public function currentSpanId(): ?string
     {
-        return null;
+        return $this->startedSpanContext?->spanId;
+    }
+
+    public function clearStartedSpanContext(): void
+    {
+        $this->startedSpanContext = null;
     }
 }

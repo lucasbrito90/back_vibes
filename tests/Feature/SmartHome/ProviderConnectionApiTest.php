@@ -6,7 +6,6 @@ use App\Models\ProviderConnection;
 use App\Models\User;
 use App\SmartHome\ConnectionStatus;
 use App\SmartHome\ProviderType;
-use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Kreait\Firebase\Contract\Auth;
 use Lcobucci\JWT\Token\DataSet;
@@ -211,6 +210,63 @@ test('store rejects non-https base_url', function () {
         ->assertJsonValidationErrors(['config.base_url']);
 });
 
+test('store rejects missing config.base_url for home_assistant', function () {
+    $user = pcUser('fb-pc-store-no-base-url');
+
+    pcAuth($user);
+
+    $this->postJson('/api/provider-connections', [
+        ...validConnectionPayload(),
+        'config' => [],
+    ], pcHeaders())->assertUnprocessable()
+        ->assertJsonValidationErrors(['config.base_url']);
+});
+
+test('store accepts http base_url when home_assistant allow_http is enabled', function () {
+    config(['smart_home.providers.home_assistant.allow_http' => true]);
+
+    $user = pcUser('fb-pc-store-http-allowed');
+
+    pcAuth($user);
+
+    $this->postJson('/api/provider-connections', [
+        ...validConnectionPayload(),
+        'config' => ['base_url' => 'http://ha.local.test'],
+    ], pcHeaders())->assertCreated()
+        ->assertJsonPath('data.config.base_url', 'http://ha.local.test');
+});
+
+test('store rejects unregistered provider with a specific message', function () {
+    $user = pcUser('fb-pc-store-unregistered-msg');
+
+    pcAuth($user);
+
+    $response = $this->postJson('/api/provider-connections', [
+        ...validConnectionPayload(),
+        'provider' => 'alexa',
+    ], pcHeaders())->assertUnprocessable()
+        ->assertJsonValidationErrors(['provider']);
+
+    expect($response->json('errors.provider.0'))
+        ->toBe('The selected smart home provider is not registered.');
+});
+
+test('store validation errors never expose credential values', function () {
+    $user = pcUser('fb-pc-store-no-cred-leak');
+
+    pcAuth($user);
+
+    $response = $this->postJson('/api/provider-connections', [
+        ...validConnectionPayload(),
+        'encrypted_credentials' => ['access_token' => ''],
+    ], pcHeaders())->assertUnprocessable();
+
+    $body = json_encode($response->json());
+
+    expect($body)->not->toContain('super-secret')
+        ->and($body)->not->toContain('my-secret-token');
+});
+
 test('store rejects missing required fields', function () {
     $user = pcUser('fb-pc-store-missing');
 
@@ -221,20 +277,41 @@ test('store rejects missing required fields', function () {
         ->assertJsonValidationErrors(['name', 'provider', 'config', 'encrypted_credentials']);
 });
 
-test('same user cannot create duplicate provider connection', function () {
-    $user = pcUser('fb-pc-store-dup');
+test('same user can create two home assistant connections with different names', function () {
+    $user = pcUser('fb-pc-store-multi-ha');
 
     ProviderConnection::factory()->create([
         'user_id' => $user->id,
+        'name' => 'Home HA',
         'provider' => ProviderType::HomeAssistant->value,
     ]);
 
     pcAuth($user);
 
-    $this->withoutExceptionHandling();
+    $response = $this->postJson('/api/provider-connections', [
+        ...validConnectionPayload(),
+        'name' => 'Office HA',
+    ], pcHeaders())->assertCreated();
 
-    $this->postJson('/api/provider-connections', validConnectionPayload(), pcHeaders());
-})->throws(QueryException::class);
+    expect(ProviderConnection::where('user_id', $user->id)->count())->toBe(2)
+        ->and($response->json('data.name'))->toBe('Office HA')
+        ->and($response->json('data.provider'))->toBe(ProviderType::HomeAssistant->value);
+});
+
+test('same user cannot create duplicate connection name', function () {
+    $user = pcUser('fb-pc-store-dup-name');
+
+    ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'My Home HA',
+    ]);
+
+    pcAuth($user);
+
+    $this->postJson('/api/provider-connections', validConnectionPayload(), pcHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['name']);
+});
 
 test('different users can each create a home assistant connection', function () {
     $alice = pcUser('fb-pc-store-diff-alice');
@@ -374,6 +451,46 @@ test('user cannot update another users connection', function () {
         ->assertForbidden();
 
     expect($bobConn->fresh()->name)->toBe('Original');
+});
+
+test('update cannot rename connection to duplicate name of same user', function () {
+    $user = pcUser('fb-pc-upd-dup-name');
+    ProviderConnection::factory()->create(['user_id' => $user->id, 'name' => 'Taken']);
+    $conn = ProviderConnection::factory()->create(['user_id' => $user->id, 'name' => 'Mine']);
+
+    pcAuth($user);
+
+    $this->patchJson("/api/provider-connections/{$conn->id}", ['name' => 'Taken'], pcHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['name']);
+});
+
+test('update rejects non-https base_url when allow_http is disabled', function () {
+    config(['smart_home.providers.home_assistant.allow_http' => false]);
+
+    $user = pcUser('fb-pc-upd-http-blocked');
+    $conn = ProviderConnection::factory()->create(['user_id' => $user->id]);
+
+    pcAuth($user);
+
+    $this->patchJson("/api/provider-connections/{$conn->id}", [
+        'config' => ['base_url' => 'http://ha.local.test'],
+    ], pcHeaders())->assertUnprocessable()
+        ->assertJsonValidationErrors(['config.base_url']);
+});
+
+test('update accepts http base_url when home_assistant allow_http is enabled', function () {
+    config(['smart_home.providers.home_assistant.allow_http' => true]);
+
+    $user = pcUser('fb-pc-upd-http-allowed');
+    $conn = ProviderConnection::factory()->create(['user_id' => $user->id]);
+
+    pcAuth($user);
+
+    $this->patchJson("/api/provider-connections/{$conn->id}", [
+        'config' => ['base_url' => 'http://ha.local.test'],
+    ], pcHeaders())->assertOk()
+        ->assertJsonPath('data.config.base_url', 'http://ha.local.test');
 });
 
 test('update rejects prohibited status field', function () {

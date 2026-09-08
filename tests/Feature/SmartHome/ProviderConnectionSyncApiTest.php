@@ -8,6 +8,7 @@ use App\Models\ProviderConnection;
 use App\Models\User;
 use App\SmartHome\ConnectionStatus;
 use App\SmartHome\DeviceStatus;
+use App\SmartHome\DeviceType;
 use App\SmartHome\ProviderType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
@@ -156,7 +157,8 @@ test('sync creates devices from provider DTOs', function () {
 
     expect($light)->not->toBeNull()
         ->and($light->name)->toBe('Living Room Light')
-        ->and($light->type)->toBe('light')
+        ->and($light->type)->toBe(DeviceType::Lighting->value)
+        ->and($light->metadata['domain'])->toBe('light')
         ->and($light->status)->toBe(DeviceStatus::Online->value)
         ->and($light->user_id)->toBe($user->id)
         ->and($light->provider)->toBe(ProviderType::HomeAssistant->value);
@@ -433,6 +435,210 @@ test('provider_device_id uniqueness respected — same entity appears once', fun
         ->count())->toBe(1);
 });
 
+test('sync persists capabilities from adapter DTO exactly as stored in devices', function () {
+    $user = syncUser('fb-sync-cap-persist');
+    $conn = syncConnection($user);
+
+    fakeHaStates([[
+        'entity_id' => 'light.living_room',
+        'state' => 'on',
+        'attributes' => [
+            'friendly_name' => 'Living Room',
+            'supported_features' => 1,
+        ],
+    ]]);
+
+    syncAuth($user);
+
+    $this->postJson(syncUrl($conn), [], syncHeaders())->assertOk();
+
+    $device = Device::where('provider_connection_id', $conn->id)
+        ->where('provider_device_id', 'light.living_room')
+        ->first();
+
+    expect($device)->not->toBeNull()
+        ->and($device->capabilities)->toMatchArray([
+            'can_turn_on' => [],
+            'can_turn_off' => [],
+            'can_toggle' => [],
+            'can_set_brightness' => ['min' => 0, 'max' => 255, 'step' => 1],
+        ]);
+});
+
+test('sync replaces capabilities on subsequent sync when provider reports fewer', function () {
+    $user = syncUser('fb-sync-cap-replace');
+    $conn = syncConnection($user);
+
+    Http::fake([
+        SYNC_HA_BASE.'/api/states' => Http::sequence()
+            ->push([[
+                'entity_id' => 'light.living_room',
+                'state' => 'on',
+                'attributes' => ['supported_features' => 1],
+            ]], 200)
+            ->push([[
+                'entity_id' => 'light.living_room',
+                'state' => 'on',
+                'attributes' => ['supported_features' => 0],
+            ]], 200),
+    ]);
+
+    syncAuth($user);
+
+    $this->postJson(syncUrl($conn), [], syncHeaders())->assertOk();
+
+    $device = Device::where('provider_device_id', 'light.living_room')->first();
+    expect($device->capabilities)->toHaveKey('can_set_brightness');
+
+    $this->postJson(syncUrl($conn), [], syncHeaders())->assertOk();
+
+    $updated = $device->fresh();
+
+    expect($updated->capabilities)->toMatchArray([
+        'can_turn_on' => [],
+        'can_turn_off' => [],
+        'can_toggle' => [],
+    ])
+        ->and($updated->capabilities)->not->toHaveKey('can_set_brightness');
+});
+
+test('syncing connection A does not alter devices or capabilities on connection B', function () {
+    $user = syncUser('fb-sync-cap-iso');
+
+    $connA = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Home HA',
+        'config' => ['base_url' => 'https://home.ha.test'],
+    ]);
+    $connA->setEncryptedCredentials(['access_token' => 'home-token']);
+    $connA->save();
+
+    $connB = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Office HA',
+        'config' => ['base_url' => 'https://office.ha.test'],
+    ]);
+    $connB->setEncryptedCredentials(['access_token' => 'office-token']);
+    $connB->save();
+
+    $officeCapabilities = [
+        'can_turn_on' => [],
+        'can_turn_off' => [],
+        'can_toggle' => [],
+    ];
+
+    $officeDevice = Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connB->id,
+        'provider' => $connB->provider,
+        'provider_device_id' => 'light.office_only',
+        'status' => DeviceStatus::Online->value,
+        'capabilities' => $officeCapabilities,
+    ]);
+
+    Http::fake([
+        'https://home.ha.test/api/states' => Http::response([[
+            'entity_id' => 'light.living_room',
+            'state' => 'on',
+            'attributes' => ['supported_features' => 1],
+        ]]),
+    ]);
+
+    syncAuth($user);
+
+    $this->postJson(syncUrl($connA), [], syncHeaders())->assertOk();
+
+    $homeDevice = Device::where('provider_connection_id', $connA->id)->first();
+    $officeFresh = $officeDevice->fresh();
+
+    expect($homeDevice->capabilities)->toHaveKey('can_set_brightness')
+        ->and($officeFresh->capabilities)->toBe($officeCapabilities)
+        ->and($officeFresh->status)->toBe(DeviceStatus::Online->value)
+        ->and(Device::where('provider_connection_id', $connB->id)->count())->toBe(1);
+});
+
+test('sync status regression offline for absent and unknown for unreachable connection', function () {
+    $user = syncUser('fb-sync-status-regression');
+    $conn = syncConnection($user);
+
+    $absent = Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $conn->id,
+        'provider' => $conn->provider,
+        'provider_device_id' => 'light.absent',
+        'status' => DeviceStatus::Online->value,
+    ]);
+
+    $present = Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $conn->id,
+        'provider' => $conn->provider,
+        'provider_device_id' => 'light.present',
+        'status' => DeviceStatus::Online->value,
+    ]);
+
+    fakeHaStates([[
+        'entity_id' => 'light.present',
+        'state' => 'on',
+        'attributes' => ['supported_features' => 1],
+    ]]);
+
+    syncAuth($user);
+
+    $this->postJson(syncUrl($conn), [], syncHeaders())->assertOk();
+
+    expect($absent->fresh()->status)->toBe(DeviceStatus::Offline->value)
+        ->and($present->fresh()->status)->toBe(DeviceStatus::Online->value)
+        ->and($present->fresh()->capabilities)->toHaveKey('can_set_brightness');
+
+    Http::fake(fn (Request $request) => throw new ConnectionException('timeout'));
+
+    $this->postJson(syncUrl($conn), [], syncHeaders())->assertStatus(502);
+
+    expect($conn->fresh()->status)->toBe(ConnectionStatus::Unreachable->value)
+        ->and($present->fresh()->status)->toBe(DeviceStatus::Unknown->value);
+});
+
+test('syncing one connection does not affect devices on another connection of same user', function () {
+    $user = syncUser('fb-sync-iso-same-user');
+
+    $homeConn = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Home HA',
+        'config' => ['base_url' => 'https://home.ha.test'],
+    ]);
+    $homeConn->setEncryptedCredentials(['access_token' => 'home-token']);
+    $homeConn->save();
+
+    $officeConn = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Office HA',
+        'config' => ['base_url' => 'https://office.ha.test'],
+    ]);
+    $officeConn->setEncryptedCredentials(['access_token' => 'office-token']);
+    $officeConn->save();
+
+    $officeDevice = Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $officeConn->id,
+        'provider' => $officeConn->provider,
+        'provider_device_id' => 'light.office_only',
+        'status' => DeviceStatus::Online->value,
+    ]);
+
+    Http::fake([
+        'https://home.ha.test/api/states' => Http::response(twoDeviceStates()),
+    ]);
+
+    syncAuth($user);
+
+    $this->postJson(syncUrl($homeConn), [], syncHeaders())->assertOk();
+
+    expect(Device::where('provider_connection_id', $homeConn->id)->count())->toBe(2)
+        ->and($officeDevice->fresh()->status)->toBe(DeviceStatus::Online->value)
+        ->and(Device::where('provider_connection_id', $officeConn->id)->count())->toBe(1);
+});
+
 test('devices from different connections are isolated', function () {
     $alice = syncUser('fb-sync-iso-alice');
     $bob = syncUser('fb-sync-iso-bob');
@@ -447,4 +653,82 @@ test('devices from different connections are isolated', function () {
 
     expect(Device::where('provider_connection_id', $aliceConn->id)->count())->toBe(2)
         ->and(Device::where('provider_connection_id', $bobConn->id)->count())->toBe(0);
+});
+
+test('sync persists IXORA DeviceType for each actionable HA domain', function () {
+    $user = syncUser('fb-sync-device-types');
+    $conn = syncConnection($user);
+
+    fakeHaStates([
+        [
+            'entity_id' => 'light.living_room',
+            'state' => 'on',
+            'attributes' => ['friendly_name' => 'Living Room'],
+        ],
+        [
+            'entity_id' => 'switch.kitchen',
+            'state' => 'off',
+            'attributes' => ['friendly_name' => 'Kitchen'],
+        ],
+        [
+            'entity_id' => 'media_player.tv',
+            'state' => 'playing',
+            'attributes' => ['friendly_name' => 'TV'],
+        ],
+        [
+            'entity_id' => 'fan.bedroom',
+            'state' => 'on',
+            'attributes' => ['friendly_name' => 'Bedroom Fan'],
+        ],
+    ]);
+
+    syncAuth($user);
+
+    $this->postJson(syncUrl($conn), [], syncHeaders())->assertOk();
+
+    $expected = [
+        'light.living_room' => [DeviceType::Lighting->value, 'light'],
+        'switch.kitchen' => [DeviceType::Switchable->value, 'switch'],
+        'media_player.tv' => [DeviceType::Media->value, 'media_player'],
+        'fan.bedroom' => [DeviceType::Ventilation->value, 'fan'],
+    ];
+
+    foreach ($expected as $entityId => [$ixoraType, $haDomain]) {
+        $device = Device::where('provider_connection_id', $conn->id)
+            ->where('provider_device_id', $entityId)
+            ->first();
+
+        expect($device)->not->toBeNull()
+            ->and($device->type)->toBe($ixoraType)
+            ->and($device->type)->not->toBe($haDomain)
+            ->and($device->metadata['domain'])->toBe($haDomain);
+    }
+});
+
+test('sync updates null type from provider when device appears in catalog', function () {
+    $user = syncUser('fb-sync-null-type');
+    $conn = syncConnection($user);
+
+    Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $conn->id,
+        'provider' => $conn->provider,
+        'provider_device_id' => 'light.existing_null_type',
+        'type' => null,
+    ]);
+
+    fakeHaStates([[
+        'entity_id' => 'light.existing_null_type',
+        'state' => 'on',
+        'attributes' => ['friendly_name' => 'Updated Light'],
+    ]]);
+
+    syncAuth($user);
+
+    $this->postJson(syncUrl($conn), [], syncHeaders())->assertOk();
+
+    $device = Device::where('provider_device_id', 'light.existing_null_type')->first();
+
+    expect($device->type)->toBe(DeviceType::Lighting->value)
+        ->and($device->metadata['domain'])->toBe('light');
 });

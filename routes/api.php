@@ -10,10 +10,12 @@ use App\Http\Controllers\Api\FirebaseUserSyncController;
 use App\Http\Controllers\Api\HealthController;
 use App\Http\Controllers\Api\PresetVibeController;
 use App\Http\Controllers\Api\ProviderConnectionController;
+use App\Http\Controllers\Api\ProviderTypeController;
 use App\Http\Controllers\Api\PushTokenController;
 use App\Http\Controllers\Api\SceneActionController;
 use App\Http\Controllers\Api\SceneController;
 use App\Http\Controllers\Api\SceneDispatchController;
+use App\Http\Controllers\Api\SceneExecutionController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
@@ -38,9 +40,12 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
 
     Route::apiResource('vibes', VibeController::class);
     Route::apiResource('schedules', ScheduleController::class);
+    Route::get('provider-types', [ProviderTypeController::class, 'index']);
     Route::apiResource('provider-connections', ProviderConnectionController::class);
     Route::post('provider-connections/{providerConnection}/sync', [ProviderConnectionController::class, 'sync'])
         ->name('provider-connections.sync');
+    Route::post('provider-connections/{providerConnection}/devices/sync', [ProviderConnectionController::class, 'syncReportedDevices'])
+        ->name('provider-connections.devices.sync');
     Route::apiResource('devices', DeviceController::class);
     Route::apiResource('scenes', SceneController::class);
 
@@ -87,6 +92,9 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
 
     Route::prefix('scenes/{scene}')->group(function () {
         Route::post('execute', SceneDispatchController::class);
+
+        Route::get('executions', [SceneExecutionController::class, 'index']);
+        Route::get('executions/{sceneExecutionId}', [SceneExecutionController::class, 'show']);
 
         Route::get('actions', [SceneActionController::class, 'index']);
         Route::post('actions', [SceneActionController::class, 'store']);

@@ -1,6 +1,50 @@
 <?php
 
+use App\SmartHome\Adapters\HomeAssistantAdapter;
+use App\SmartHome\ProviderExecutionCapability;
+
 return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | Smart Home Provider Adapters (ADR-032 decision B)
+    |--------------------------------------------------------------------------
+    |
+    | Slug => FQCN implementing ProviderAdapter. Resolved via
+    | ProviderAdapterRegistry::forSlug(). Add a slug here to register a new
+    | provider — no edits to ProviderAdapterResolver required.
+    |
+    */
+
+    'adapters' => [
+        'home_assistant' => HomeAssistantAdapter::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Known Providers (ADR-036 Decision 3)
+    |--------------------------------------------------------------------------
+    |
+    | Source of truth for provider IDENTITY — every slug the platform knows
+    | about, independent of whether it has a server-side ProviderAdapter.
+    | `adapters` above is a SUBSET of this list, never the other way round:
+    | every adapter slug belongs to a known provider, but a known provider
+    | (e.g. google_home, which is device-side only — see ADR-036) does not
+    | need an adapter entry. ProviderDescriptorRegistry reads from this list,
+    | not from ProviderAdapterRegistry::registeredSlugs().
+    |
+    | This is metadata/identity only. It does NOT make a provider eligible
+    | for ProviderConnection creation — StoreProviderConnectionRequest still
+    | validates the `provider` field against ProviderAdapterRegistry, which
+    | is unchanged by this list (server-side connection creation semantics
+    | for adapter-less providers are a separate, not-yet-scoped decision).
+    |
+    */
+
+    'known_providers' => [
+        'home_assistant',
+        'google_home',
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -13,6 +57,73 @@ return [
     | tuning such as request timeouts and protocol policy.
     |
     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Provider Descriptors
+    |--------------------------------------------------------------------------
+    |
+    | Static metadata exposed via GET /api/provider-types. Describes field
+    | shapes only — never credential values. Slugs must match `known_providers`
+    | above (a strict superset of registered adapter slugs).
+    |
+    | execution_capabilities (ADR-036 Decision 2) is a closed vocabulary
+    | (App\SmartHome\ProviderExecutionCapability) describing what the
+    | PROVIDER can do at the execution layer — orthogonal to, and never
+    | merged or cross-validated with, a DEVICE's own capabilities
+    | (ADR-033's `can_*` vocabulary).
+    |
+    */
+
+    'provider_descriptors' => [
+
+        'home_assistant' => [
+            'label' => 'Home Assistant',
+            'config' => [
+                'base_url' => [
+                    'type' => 'string',
+                    'format' => 'url:https',
+                    'required' => true,
+                ],
+            ],
+            'credentials' => [
+                'access_token' => [
+                    'type' => 'string',
+                    'required' => true,
+                ],
+            ],
+            // Home Assistant is the server-side/scheduled provider — it
+            // declares the full vocabulary except automation_delegation
+            // (reserved, unused in v1.6.0).
+            'execution_capabilities' => [
+                ProviderExecutionCapability::DeviceDiscovery->value,
+                ProviderExecutionCapability::StateRead->value,
+                ProviderExecutionCapability::InteractiveExecution->value,
+                ProviderExecutionCapability::ServerSideExecution->value,
+                ProviderExecutionCapability::ScheduledExecution->value,
+            ],
+        ],
+
+        // Google Home has no server-side credential to collect (ADR-036
+        // Decision 3/4 — the Home APIs are a device-side SDK, not a
+        // server-reachable API). Empty config/credentials is the honest
+        // shape today, not a placeholder: there is nothing to type into a
+        // connection form.
+        'google_home' => [
+            'label' => 'Google Home',
+            'config' => [],
+            'credentials' => [],
+            // Device-side only (ADR-036 §1-3): the Home APIs have no
+            // server-reachable surface, so neither server_side_execution
+            // nor scheduled_execution is declared.
+            'execution_capabilities' => [
+                ProviderExecutionCapability::DeviceDiscovery->value,
+                ProviderExecutionCapability::StateRead->value,
+                ProviderExecutionCapability::InteractiveExecution->value,
+            ],
+        ],
+
+    ],
 
     'providers' => [
 

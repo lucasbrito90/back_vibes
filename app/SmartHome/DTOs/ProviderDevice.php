@@ -18,6 +18,7 @@ final readonly class ProviderDevice
 {
     /**
      * @param  array<string, mixed>  $metadata  Provider-specific attributes (domain, raw_state, supported_features, …)
+     * @param  array<string, array<string, mixed>>|null  $capabilities  Ixora capability map (ADR-033); null when not derivable
      */
     public function __construct(
         public string $provider_device_id,
@@ -26,5 +27,6 @@ final readonly class ProviderDevice
         public DeviceStatus $status,
         public array $metadata,
         public ?Carbon $last_seen_at,
+        public ?array $capabilities = null,
     ) {}
 }

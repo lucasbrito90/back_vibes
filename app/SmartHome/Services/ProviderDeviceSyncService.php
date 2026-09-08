@@ -111,6 +111,7 @@ final class ProviderDeviceSyncService
                     'status' => $dto->status->value,
                     'metadata' => $dto->metadata,
                     'last_seen_at' => $dto->last_seen_at,
+                    'capabilities' => $dto->capabilities,
                 ]
             );
 

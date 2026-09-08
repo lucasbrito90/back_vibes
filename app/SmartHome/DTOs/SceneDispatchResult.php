@@ -19,5 +19,6 @@ final readonly class SceneDispatchResult
         public int $dispatched,
         public int $skipped,
         public array $action_ids,
+        public string $scene_execution_id,
     ) {}
 }

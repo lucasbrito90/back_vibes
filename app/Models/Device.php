@@ -16,11 +16,12 @@ use Illuminate\Support\Carbon;
  * @property int $user_id
  * @property int $provider_connection_id
  * @property string $name
- * @property string $type
+ * @property string|null $type IXORA-normalised category (DeviceType) when set; nullable for manual create
  * @property string $provider
  * @property string $provider_device_id
  * @property string $status
  * @property array|null $metadata
+ * @property array<string, array<string, mixed>>|null $capabilities ADR-033 capability map; null = unknown
  * @property Carbon|null $last_seen_at
  * @property Carbon $created_at
  * @property Carbon $updated_at
@@ -39,6 +40,7 @@ final class Device extends Model
         'provider_device_id',
         'status',
         'metadata',
+        'capabilities',
         'last_seen_at',
     ];
 
@@ -46,6 +48,7 @@ final class Device extends Model
     {
         return [
             'metadata' => 'array',
+            'capabilities' => 'array',
             'last_seen_at' => 'datetime',
         ];
     }

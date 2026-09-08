@@ -7,12 +7,14 @@ namespace App\SmartHome\Adapters;
 use App\Models\ProviderConnection;
 use App\SmartHome\Contracts\ProviderAdapter;
 use App\SmartHome\DeviceStatus;
+use App\SmartHome\DeviceType;
 use App\SmartHome\DTOs\ActionResult;
 use App\SmartHome\DTOs\ConnectionHealth;
 use App\SmartHome\DTOs\DeviceStatusResult;
 use App\SmartHome\DTOs\ProviderDevice;
 use App\SmartHome\Exceptions\ProviderConnectionException;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
+use App\SmartHome\ProviderRequestTimeout;
 use App\SmartHome\ProviderType;
 use App\Telemetry\SmartHome\SmartHomeProviderTelemetry;
 use Illuminate\Http\Client\ConnectionException;
@@ -42,6 +44,16 @@ final class HomeAssistantAdapter implements ProviderAdapter
     private const ACTIONABLE_DOMAINS = ['light', 'switch', 'media_player', 'fan'];
 
     /**
+     * Legacy Home Assistant light supported_features bit for SUPPORT_BRIGHTNESS.
+     *
+     * Documented in HA legacy docs as value 1 (0x01). ADR-033 hypotheses summary
+     * for T16: not validated against a live HA instance — post-2022.5
+     * LightEntityFeature IntFlag compatibility is unknown. Revisit when real
+     * device payloads are available.
+     */
+    private const HA_LIGHT_SUPPORT_BRIGHTNESS = 0x01;
+
+    /**
      * IXORA action type → HA service name. The HA domain is derived from the
      * entity_id, producing service calls like `light.turn_on`.
      */
@@ -49,6 +61,7 @@ final class HomeAssistantAdapter implements ProviderAdapter
         'turn_on' => 'turn_on',
         'turn_off' => 'turn_off',
         'toggle' => 'toggle',
+        'set_brightness' => 'turn_on',
     ];
 
     public function listDevices(ProviderConnection $connection): array
@@ -100,28 +113,34 @@ final class HomeAssistantAdapter implements ProviderAdapter
         // Business Telemetry boundary (Phase 7B.6): mirrors executeAction()
         // — a single device, so the span carries the same device_domain
         // attribute derived the same way.
-        return $this->providerTelemetry->wrap($this->domainFor($deviceId), function () use ($connection, $deviceId) {
-            try {
-                $response = $this->client($connection)->get($this->baseUrl($connection)."/api/states/{$deviceId}");
-            } catch (ConnectionException) {
-                return $this->unknownStatus($deviceId);
-            }
+        $domain = $this->domainFor($deviceId);
 
-            if (! $response->successful()) {
-                return $this->unknownStatus($deviceId);
-            }
+        return $this->providerTelemetry->wrap(
+            $domain,
+            function () use ($connection, $deviceId) {
+                try {
+                    $response = $this->client($connection)->get($this->baseUrl($connection)."/api/states/{$deviceId}");
+                } catch (ConnectionException) {
+                    return $this->unknownStatus($deviceId);
+                }
 
-            $data = (array) $response->json();
-            $rawState = isset($data['state']) ? (string) $data['state'] : null;
+                if (! $response->successful()) {
+                    return $this->unknownStatus($deviceId);
+                }
 
-            return new DeviceStatusResult(
-                provider_device_id: isset($data['entity_id']) ? (string) $data['entity_id'] : $deviceId,
-                status: $this->mapStatus($rawState),
-                raw_state: $rawState,
-                attributes: isset($data['attributes']) && is_array($data['attributes']) ? $data['attributes'] : [],
-                last_changed: isset($data['last_changed']) ? (string) $data['last_changed'] : null,
-            );
-        });
+                $data = (array) $response->json();
+                $rawState = isset($data['state']) ? (string) $data['state'] : null;
+
+                return new DeviceStatusResult(
+                    provider_device_id: isset($data['entity_id']) ? (string) $data['entity_id'] : $deviceId,
+                    status: $this->mapStatus($rawState),
+                    raw_state: $rawState,
+                    attributes: isset($data['attributes']) && is_array($data['attributes']) ? $data['attributes'] : [],
+                    last_changed: isset($data['last_changed']) ? (string) $data['last_changed'] : null,
+                );
+            },
+            $this->mapDeviceType($domain)->value,
+        );
     }
 
     public function executeAction(
@@ -144,30 +163,34 @@ final class HomeAssistantAdapter implements ProviderAdapter
         // action check above, which returns before any provider work
         // begins. See SmartHomeProviderTelemetry's docblock for the full
         // boundary-discovery rationale.
-        return $this->providerTelemetry->wrap($domain, function () use ($connection, $deviceId, $domain, $service, $parameters) {
-            $payload = array_merge(['entity_id' => $deviceId], $parameters);
+        return $this->providerTelemetry->wrap(
+            $domain,
+            function () use ($connection, $deviceId, $domain, $service, $parameters) {
+                $payload = array_merge(['entity_id' => $deviceId], $parameters);
 
-            try {
-                $response = $this->client($connection)
-                    ->post($this->baseUrl($connection)."/api/services/{$domain}/{$service}", $payload);
-            } catch (ConnectionException) {
+                try {
+                    $response = $this->client($connection)
+                        ->post($this->baseUrl($connection)."/api/services/{$domain}/{$service}", $payload);
+                } catch (ConnectionException) {
+                    return new ActionResult(
+                        success: false,
+                        status_code: null,
+                        response: null,
+                        error_message: 'Provider connection failed.',
+                    );
+                }
+
+                $body = $response->json();
+
                 return new ActionResult(
-                    success: false,
-                    status_code: null,
-                    response: null,
-                    error_message: 'Provider connection failed.',
+                    success: $response->successful(),
+                    status_code: $response->status(),
+                    response: is_array($body) ? $body : null,
+                    error_message: $response->successful() ? null : 'Provider returned status '.$response->status().'.',
                 );
-            }
-
-            $body = $response->json();
-
-            return new ActionResult(
-                success: $response->successful(),
-                status_code: $response->status(),
-                response: is_array($body) ? $body : null,
-                error_message: $response->successful() ? null : 'Provider returned status '.$response->status().'.',
-            );
-        });
+            },
+            $this->mapDeviceType($domain)->value,
+        );
     }
 
     public function testConnection(ProviderConnection $connection): ConnectionHealth
@@ -222,17 +245,12 @@ final class HomeAssistantAdapter implements ProviderAdapter
         return Http::withToken($token)
             ->acceptJson()
             ->asJson()
-            ->timeout($this->timeout());
+            ->timeout(ProviderRequestTimeout::forSlug($this->providerSlug()));
     }
 
     private function baseUrl(ProviderConnection $connection): string
     {
         return rtrim((string) ($connection->config['base_url'] ?? ''), '/');
-    }
-
-    private function timeout(): int
-    {
-        return (int) config('smart_home.providers.home_assistant.timeout', 10);
     }
 
     private function providerSlug(): string
@@ -273,11 +291,99 @@ final class HomeAssistantAdapter implements ProviderAdapter
         return new ProviderDevice(
             provider_device_id: $entityId,
             name: is_string($friendlyName) && $friendlyName !== '' ? $friendlyName : $entityId,
-            type: $domain,
+            type: $this->mapDeviceType($domain)->value,
             status: $this->mapStatus($rawState),
             metadata: $metadata,
             last_seen_at: $this->parseTimestamp($state['last_changed'] ?? null),
+            capabilities: $this->deriveCapabilities($domain, $attributes),
         );
+    }
+
+    /**
+     * Derive Ixora capabilities from HA domain and entity attributes (ADR-033 §4).
+     *
+     * Boolean on/off (and toggle where applicable) are granted per domain without
+     * reading supported_features. can_set_brightness for light requires
+     * supported_features & HA_LIGHT_SUPPORT_BRIGHTNESS — see constant docblock
+     * for validation caveat against live HA payloads.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, array<string, mixed>>
+     */
+    private function deriveCapabilities(string $domain, array $attributes): array
+    {
+        $capabilities = match ($domain) {
+            'light', 'switch', 'fan' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+                'can_toggle' => [],
+            ],
+            'media_player' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+            ],
+            default => [],
+        };
+
+        if ($domain === 'light' && $this->lightSupportsBrightness($attributes)) {
+            $capabilities['can_set_brightness'] = [
+                'min' => 0,
+                'max' => 255,
+                'step' => 1,
+            ];
+        }
+
+        return $capabilities;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function lightSupportsBrightness(array $attributes): bool
+    {
+        $mask = $this->parseSupportedFeaturesMask($attributes);
+
+        return $mask !== null && ($mask & self::HA_LIGHT_SUPPORT_BRIGHTNESS) !== 0;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function parseSupportedFeaturesMask(array $attributes): ?int
+    {
+        if (! array_key_exists('supported_features', $attributes)) {
+            return null;
+        }
+
+        $features = $attributes['supported_features'];
+
+        if (is_int($features)) {
+            return $features;
+        }
+
+        if (is_string($features) && ctype_digit($features)) {
+            return (int) $features;
+        }
+
+        return null;
+    }
+
+    /**
+     * Map a Home Assistant entity domain to the IXORA DeviceType vocabulary.
+     *
+     * Unrecognised domains fall back to DeviceType::Other — HA domain strings
+     * must never be written to devices.type (see metadata['domain'] for the
+     * original provider slug).
+     */
+    private function mapDeviceType(string $domain): DeviceType
+    {
+        return match ($domain) {
+            'light' => DeviceType::Lighting,
+            'switch' => DeviceType::Switchable,
+            'media_player' => DeviceType::Media,
+            'fan' => DeviceType::Ventilation,
+            default => DeviceType::Other,
+        };
     }
 
     /**

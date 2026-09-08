@@ -4,20 +4,27 @@ declare(strict_types=1);
 
 namespace App\Jobs\SmartHome;
 
+use App\Models\Device;
+use App\Models\ProviderConnection;
 use App\Models\SceneAction;
 use App\PushNotifications\Services\PushNotificationEvents;
+use App\SmartHome\ActionType;
 use App\SmartHome\DTOs\ActionResult;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
 use App\SmartHome\ProviderAdapterResolver;
+use App\SmartHome\Services\SceneActionExecutionRecorder;
+use App\SmartHome\Services\SceneActionRetryPolicy;
 use App\Telemetry\SmartHome\SmartHomeActionOutcome;
 use App\Telemetry\SmartHome\SmartHomeActionProvider;
 use App\Telemetry\SmartHome\SmartHomeActionTelemetry;
 use App\Telemetry\SmartHome\SmartHomeActionType;
+use App\Telemetry\SmartHome\SmartHomeActionWrapResult;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -32,6 +39,9 @@ use Throwable;
  * Push notification on failure uses scene_id (not vibe_id) via
  * SmartHomeSceneActionFailedNotification — a Scene may be shared by multiple
  * Vibes or executed directly without any Vibe context.
+ *
+ * Retries (pre-v1.4.0 fix): transport failures and provider 5xx responses call
+ * release() while attempts() < tries; push notifies only after the last attempt.
  *
  * Queue: smart-home | Timeout: 30s | Tries: 3
  */
@@ -48,6 +58,7 @@ final class SceneActionJob implements ShouldQueue
 
     public function __construct(
         public readonly int $sceneActionId,
+        public readonly ?string $sceneExecutionId = null,
     ) {
         $this->onQueue('smart-home');
     }
@@ -56,6 +67,8 @@ final class SceneActionJob implements ShouldQueue
         ProviderAdapterResolver $resolver,
         PushNotificationEvents $pushEvents,
         SmartHomeActionTelemetry $actionTelemetry,
+        SceneActionExecutionRecorder $executionRecorder,
+        SceneActionRetryPolicy $retryPolicy,
     ): void {
         $action = SceneAction::with(['device', 'device.providerConnection', 'device.user'])
             ->find($this->sceneActionId);
@@ -101,48 +114,149 @@ final class SceneActionJob implements ShouldQueue
             'action_type' => $action->action_type,
         ];
 
-        try {
-            $result = $actionTelemetry->wrap(
-                SmartHomeActionProvider::fromProviderSlug($connection->provider),
-                SmartHomeActionType::fromActionTypeSlug($action->action_type),
-                function () use ($resolver, $connection, $device, $action) {
-                    $adapter = $resolver->forProvider($connection->provider);
+        $executedAt = now();
 
-                    return $adapter->executeAction(
-                        $connection,
-                        $device->provider_device_id,
-                        $action->action_type,
-                        $action->parameters ?? [],
-                    );
-                },
-                fn (ActionResult $result) => $result->success
-                    ? SmartHomeActionOutcome::Success
-                    : SmartHomeActionOutcome::Failure,
-                fn (Throwable $e) => $e instanceof UnsupportedSmartHomeActionException
-                    ? SmartHomeActionOutcome::Unsupported
-                    : SmartHomeActionOutcome::Failure,
-            );
+        $wrap = $actionTelemetry->wrapWithMetadata(
+            SmartHomeActionProvider::fromProviderSlug($connection->provider),
+            SmartHomeActionType::fromActionTypeSlug($action->action_type),
+            function () use ($resolver, $connection, $device, $action) {
+                if (ActionType::isBlockedByDeviceCapabilities($device->capabilities, $action->action_type)) {
+                    throw UnsupportedSmartHomeActionException::forAction($action->action_type);
+                }
 
-            $this->logResult($context, $result);
+                $adapter = $resolver->forProvider($connection->provider);
 
-            if (! $result->success) {
-                $this->notifyActionFailed($action, $pushEvents);
-            }
-        } catch (UnsupportedSmartHomeActionException $e) {
+                return $adapter->executeAction(
+                    $connection,
+                    $device->provider_device_id,
+                    $action->action_type,
+                    $action->parameters ?? [],
+                );
+            },
+            fn (ActionResult $result) => $result->success
+                ? SmartHomeActionOutcome::Success
+                : SmartHomeActionOutcome::Failure,
+            fn (Throwable $e) => $e instanceof UnsupportedSmartHomeActionException
+                ? SmartHomeActionOutcome::Unsupported
+                : SmartHomeActionOutcome::Failure,
+        );
+
+        if ($wrap->thrownException instanceof UnsupportedSmartHomeActionException) {
             Log::warning('SceneActionJob: unsupported action type — skipping.', [
                 ...$context,
                 'outcome' => SmartHomeActionOutcome::Unsupported->value,
-                'exception_class' => $e::class,
+                'exception_class' => $wrap->thrownException::class,
             ]);
-        } catch (Throwable $e) {
+
+            $executionRecorder->record(
+                sceneExecutionId: $this->sceneExecutionId,
+                action: $action,
+                device: $device,
+                connection: $connection,
+                outcome: $wrap->outcome,
+                executedAt: $executedAt,
+                exception: $wrap->thrownException,
+                traceId: $wrap->traceId,
+                durationMs: $wrap->durationMs,
+                attempt: $this->attempts(),
+            );
+
+            return;
+        }
+
+        if ($wrap->thrownException !== null) {
             Log::error('SceneActionJob: unexpected error executing action.', [
                 ...$context,
                 'outcome' => SmartHomeActionOutcome::Failure->value,
-                'exception_class' => $e::class,
+                'exception_class' => $wrap->thrownException::class,
             ]);
 
-            $this->notifyActionFailed($action, $pushEvents);
+            $this->recordAndMaybeRetryOrNotify(
+                $retryPolicy,
+                $executionRecorder,
+                $pushEvents,
+                $action,
+                $device,
+                $connection,
+                $wrap,
+                $executedAt,
+                result: null,
+            );
+
+            return;
         }
+
+        /** @var ActionResult $result */
+        $result = $wrap->result;
+
+        $this->logResult($context, $result);
+
+        if ($result->success) {
+            $executionRecorder->record(
+                sceneExecutionId: $this->sceneExecutionId,
+                action: $action,
+                device: $device,
+                connection: $connection,
+                outcome: $wrap->outcome,
+                executedAt: $executedAt,
+                actionResult: $result,
+                traceId: $wrap->traceId,
+                durationMs: $wrap->durationMs,
+                attempt: $this->attempts(),
+            );
+
+            return;
+        }
+
+        $this->recordAndMaybeRetryOrNotify(
+            $retryPolicy,
+            $executionRecorder,
+            $pushEvents,
+            $action,
+            $device,
+            $connection,
+            $wrap,
+            $executedAt,
+            result: $result,
+        );
+    }
+
+    /**
+     * Persist this attempt, then release for retry or notify on terminal failure.
+     */
+    private function recordAndMaybeRetryOrNotify(
+        SceneActionRetryPolicy $retryPolicy,
+        SceneActionExecutionRecorder $executionRecorder,
+        PushNotificationEvents $pushEvents,
+        SceneAction $action,
+        Device $device,
+        ProviderConnection $connection,
+        SmartHomeActionWrapResult $wrap,
+        Carbon $executedAt,
+        ?ActionResult $result,
+    ): void {
+        $executionRecorder->record(
+            sceneExecutionId: $this->sceneExecutionId,
+            action: $action,
+            device: $device,
+            connection: $connection,
+            outcome: $wrap->outcome,
+            executedAt: $executedAt,
+            actionResult: $result,
+            exception: $wrap->thrownException,
+            traceId: $wrap->traceId,
+            durationMs: $wrap->durationMs,
+            attempt: $this->attempts(),
+        );
+
+        if ($retryPolicy->isRetriable($result, $wrap->thrownException)
+            && $this->attempts() < $this->tries) {
+            $this->release(SceneActionRetryPolicy::RELEASE_DELAY_SECONDS);
+
+            return;
+        }
+
+        $this->notifyActionFailed($action, $pushEvents);
     }
 
     /**

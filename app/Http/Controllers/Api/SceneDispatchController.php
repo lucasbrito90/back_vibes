@@ -57,6 +57,7 @@ final class SceneDispatchController extends Controller
                 'dispatched' => $result->dispatched,
                 'skipped' => $result->skipped,
                 'action_ids' => $result->action_ids,
+                'scene_execution_id' => $result->scene_execution_id,
             ],
         ]);
     }

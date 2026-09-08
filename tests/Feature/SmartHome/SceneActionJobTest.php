@@ -8,15 +8,25 @@ use App\Models\Device;
 use App\Models\ProviderConnection;
 use App\Models\Scene;
 use App\Models\SceneAction;
-use App\PushNotifications\Services\PushNotificationEvents;
-use App\SmartHome\ProviderAdapterResolver;
+use App\Models\SceneActionExecution;
+use App\SmartHome\Services\SceneActionRetryPolicy;
+use App\Telemetry\Contracts\Meter;
+use App\Telemetry\Contracts\Tracer;
+use App\Telemetry\SmartHome\SmartHomeActionOutcome;
 use App\Telemetry\SmartHome\SmartHomeActionTelemetry;
+use Illuminate\Events\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Tests\Support\SmartHome\ResolverReachProbeAdapter;
+use Tests\Support\Telemetry\RecordingMeter;
+use Tests\Support\Telemetry\RecordingTracer;
+use Tests\Support\Telemetry\TelemetryRecorder;
 
 uses(RefreshDatabase::class);
 
@@ -56,14 +66,32 @@ function sceneJobAction(array $connOverrides = [], array $deviceOverrides = [], 
     ], $actionOverrides));
 }
 
-function runSceneJob(SceneAction|int $action): void
+function runSceneJob(SceneAction|int $action, ?string $sceneExecutionId = null): void
 {
     $id = $action instanceof SceneAction ? $action->id : $action;
-    (new SceneActionJob($id))->handle(
-        app(ProviderAdapterResolver::class),
-        app(PushNotificationEvents::class),
-        app(SmartHomeActionTelemetry::class),
-    );
+    $executionId = $sceneExecutionId ?? (string) Str::uuid();
+
+    app()->call([new SceneActionJob($id, $executionId), 'handle']);
+}
+
+function runSceneJobWithFakeQueue(SceneAction|int $action, ?string $sceneExecutionId = null, int $attempts = 1): SceneActionJob
+{
+    $id = $action instanceof SceneAction ? $action->id : $action;
+    $executionId = $sceneExecutionId ?? (string) Str::uuid();
+    $job = (new SceneActionJob($id, $executionId))->withFakeQueueInteractions();
+    $job->job->attempts = $attempts;
+
+    app()->call([$job, 'handle']);
+
+    return $job;
+}
+
+function latestExecutionFor(int $sceneActionId): ?SceneActionExecution
+{
+    return SceneActionExecution::query()
+        ->where('scene_action_id', $sceneActionId)
+        ->latest('id')
+        ->first();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,6 +204,69 @@ it('handles a provider connection failure as a completed failed result (no throw
 // Graceful handling — unsupported action, missing relations, exceptions
 // ─────────────────────────────────────────────────────────────────────────────
 
+it('blocks dispatch when device capabilities omit the required capability', function () {
+    Http::fake();
+    Log::spy();
+    Bus::fake();
+
+    config(['smart_home.adapters.home_assistant' => ResolverReachProbeAdapter::class]);
+    ResolverReachProbeAdapter::reset();
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+                'can_toggle' => [],
+            ],
+        ],
+        actionOverrides: ['action_type' => 'set_brightness'],
+    );
+
+    runSceneJob($action);
+
+    expect(ResolverReachProbeAdapter::$constructed)->toBeFalse();
+    Http::assertNothingSent();
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context) => str_contains($message, 'unsupported action type')
+            && $context['outcome'] === 'unsupported');
+    Bus::assertNotDispatched(PushNotificationJob::class);
+});
+
+it('dispatches when device capabilities include the required capability', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/light/turn_on' => Http::response([], 200)]);
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+                'can_toggle' => [],
+                'can_set_brightness' => ['min' => 0, 'max' => 255, 'step' => 1],
+            ],
+        ],
+        actionOverrides: ['action_type' => 'set_brightness', 'parameters' => ['brightness' => 200]],
+    );
+
+    runSceneJob($action);
+
+    Http::assertSent(fn (Request $request) => $request->url() === SCENE_JOB_HA_BASE.'/api/services/light/turn_on'
+        && $request['brightness'] === 200);
+});
+
+it('passes through to the adapter when device capabilities are null', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/light/turn_on' => Http::response([], 200)]);
+
+    $action = sceneJobAction(
+        deviceOverrides: ['capabilities' => null],
+        actionOverrides: ['action_type' => 'set_brightness', 'parameters' => ['brightness' => 100]],
+    );
+
+    runSceneJob($action);
+
+    Http::assertSent(fn (Request $request) => $request->url() === SCENE_JOB_HA_BASE.'/api/services/light/turn_on');
+});
+
 it('handles an unsupported action gracefully without HTTP or throw', function () {
     Http::fake();
     Log::spy();
@@ -246,14 +337,15 @@ it('handles an unexpected resolver error gracefully (unknown provider)', functio
 // Push notification integration — scene_id payload (v1.3.0)
 // ─────────────────────────────────────────────────────────────────────────────
 
-it('notifies the owner via PushNotificationEvents on a failed action result with scene_id', function () {
+it('notifies the owner via PushNotificationEvents on a failed action result after retries are exhausted', function () {
     Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
     Bus::fake();
 
     $action = sceneJobAction();
 
-    runSceneJob($action);
+    $job = runSceneJobWithFakeQueue($action, attempts: 3);
 
+    $job->assertNotReleased();
     Bus::assertDispatched(PushNotificationJob::class, function (PushNotificationJob $job) use ($action) {
         return $job->payload->data['type'] === 'smart_home_scene_action_failed'
             && $job->payload->data['device_id'] === (string) $action->device_id
@@ -289,14 +381,14 @@ it('does not notify via PushNotificationEvents on a successful scene action', fu
 });
 
 it('does not notify via PushNotificationEvents for an unsupported scene action type', function () {
-    // 'set_brightness' is not in HomeAssistantAdapter::ACTION_SERVICE_MAP, so
+    // 'set_color' is not in HomeAssistantAdapter::ACTION_SERVICE_MAP, so
     // executeAction() throws UnsupportedSmartHomeActionException.
     // Phase 6A alignment: that catch block intentionally skips the push notification
     // (ADR-026: log + skip + continue). This test pins that contract.
     Http::fake();
     Bus::fake();
 
-    runSceneJob(sceneJobAction(actionOverrides: ['action_type' => 'set_brightness']));
+    runSceneJob(sceneJobAction(actionOverrides: ['action_type' => 'set_color']));
 
     Bus::assertNotDispatched(PushNotificationJob::class);
 });
@@ -369,4 +461,287 @@ it('only performs the single provider call routed through the adapter', function
     // through the adapter rather than making ad-hoc HTTP calls.
     Http::assertSentCount(1);
     Http::assertSent(fn (Request $request) => str_contains($request->url(), '/api/services/'));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Execution persistence (ADR-034 / T21)
+// ─────────────────────────────────────────────────────────────────────────────
+
+it('persists success outcome when the provider returns 2xx', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+
+    $sceneExecutionId = (string) Str::uuid();
+    $action = sceneJobAction();
+
+    runSceneJob($action, $sceneExecutionId);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->scene_execution_id)->toBe($sceneExecutionId)
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Success->value)
+        ->and($execution->failure_category)->toBeNull()
+        ->and($execution->http_status_code)->toBe(200)
+        ->and($execution->attempt)->toBe(1);
+});
+
+it('persists failure outcome when the provider returns non-2xx', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
+
+    $action = sceneJobAction();
+
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Failure->value)
+        ->and($execution->failure_category)->toBe('provider_error')
+        ->and($execution->http_status_code)->toBe(500);
+});
+
+it('persists unsupported outcome when the adapter rejects the action type', function () {
+    Http::fake();
+
+    $action = sceneJobAction(actionOverrides: ['action_type' => 'set_color']);
+
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Unsupported->value)
+        ->and($execution->failure_category)->toBe('unsupported_action');
+});
+
+it('persists unsupported outcome when device capabilities block the action', function () {
+    Http::fake();
+    config(['smart_home.adapters.home_assistant' => ResolverReachProbeAdapter::class]);
+    ResolverReachProbeAdapter::reset();
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => [
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+                'can_toggle' => [],
+            ],
+        ],
+        actionOverrides: ['action_type' => 'set_brightness'],
+    );
+
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Unsupported->value)
+        ->and($execution->failure_category)->toBe('unsupported_action');
+});
+
+it('persists failure outcome on unexpected resolver errors', function () {
+    Http::fake();
+
+    $action = sceneJobAction(
+        connOverrides: ['provider' => 'unknown_provider'],
+        deviceOverrides: ['provider' => 'unknown_provider'],
+    );
+
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Failure->value)
+        ->and($execution->failure_category)->toBe('unexpected');
+});
+
+it('does not persist when the action is missing at job runtime', function () {
+    Http::fake();
+
+    runSceneJob(999_999);
+
+    expect(SceneActionExecution::query()->count())->toBe(0);
+});
+
+it('does not persist when the device is missing at job runtime', function () {
+    Http::fake();
+
+    $action = sceneJobAction();
+    $actionId = $action->id;
+
+    DB::statement('PRAGMA foreign_keys=OFF');
+    Device::query()->whereKey($action->device_id)->delete();
+    DB::statement('PRAGMA foreign_keys=ON');
+
+    runSceneJob($actionId);
+
+    expect(SceneActionExecution::query()->count())->toBe(0);
+});
+
+it('does not persist when the provider connection is missing at job runtime', function () {
+    Http::fake();
+
+    $action = sceneJobAction();
+    $connectionId = $action->device->provider_connection_id;
+
+    DB::statement('PRAGMA foreign_keys=OFF');
+    ProviderConnection::query()->whereKey($connectionId)->delete();
+    DB::statement('PRAGMA foreign_keys=ON');
+
+    runSceneJob($action);
+
+    expect(SceneActionExecution::query()->count())->toBe(0);
+});
+
+it('stores trace_id from the smart_home.action span when telemetry is active', function () {
+    $recorder = new TelemetryRecorder;
+    app()->bind(Tracer::class, fn () => new RecordingTracer($recorder));
+    app()->bind(Meter::class, fn () => new RecordingMeter($recorder));
+    app()->forgetInstance(SmartHomeActionTelemetry::class);
+
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+
+    $action = sceneJobAction();
+    runSceneJob($action);
+
+    $execution = latestExecutionFor($action->id);
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->trace_id)->toBe('4bf92f3577b34da6a3ce929d0e0e4736');
+});
+
+it('still executes the action when execution persistence fails', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+    Log::spy();
+
+    SceneActionExecution::creating(function (): void {
+        throw new RuntimeException('simulated persistence failure');
+    });
+
+    try {
+        $action = sceneJobAction();
+
+        expect(fn () => runSceneJob($action))->not->toThrow(Throwable::class);
+
+        Http::assertSentCount(1);
+        expect(SceneActionExecution::query()->count())->toBe(0);
+
+        Log::shouldHaveReceived('warning')
+            ->withArgs(fn (string $message) => str_contains($message, 'failed to persist execution row'));
+    } finally {
+        SceneActionExecution::setEventDispatcher(new Dispatcher);
+    }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Retry policy (pre-v1.4.0 fix — T23)
+// ─────────────────────────────────────────────────────────────────────────────
+
+it('releases retriable transport failures while attempts remain', function () {
+    Http::fake(fn () => throw new ConnectionException('refused'));
+    Bus::fake();
+
+    $job = runSceneJobWithFakeQueue(sceneJobAction(), attempts: 1);
+
+    $job->assertReleased(SceneActionRetryPolicy::RELEASE_DELAY_SECONDS);
+    Bus::assertNotDispatched(PushNotificationJob::class);
+});
+
+it('releases retriable provider 5xx failures while attempts remain', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 503)]);
+    Bus::fake();
+
+    $job = runSceneJobWithFakeQueue(sceneJobAction(), attempts: 2);
+
+    $job->assertReleased(SceneActionRetryPolicy::RELEASE_DELAY_SECONDS);
+    Bus::assertNotDispatched(PushNotificationJob::class);
+});
+
+it('does not release non-retriable 4xx provider failures', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 404)]);
+    Bus::fake();
+
+    $job = runSceneJobWithFakeQueue(sceneJobAction(), attempts: 1);
+
+    $job->assertNotReleased();
+    Bus::assertDispatched(PushNotificationJob::class);
+});
+
+it('does not release unsupported action failures', function () {
+    Http::fake();
+    Bus::fake();
+
+    $job = runSceneJobWithFakeQueue(
+        sceneJobAction(actionOverrides: ['action_type' => 'set_color']),
+        attempts: 1,
+    );
+
+    $job->assertNotReleased();
+    Bus::assertNotDispatched(PushNotificationJob::class);
+});
+
+it('does not release configuration errors such as unknown providers', function () {
+    Http::fake();
+    Bus::fake();
+
+    $job = runSceneJobWithFakeQueue(
+        sceneJobAction(
+            connOverrides: ['provider' => 'unknown_provider'],
+            deviceOverrides: ['provider' => 'unknown_provider'],
+        ),
+        attempts: 1,
+    );
+
+    $job->assertNotReleased();
+    Bus::assertDispatched(PushNotificationJob::class);
+});
+
+it('matches exhaustion behavior on the final attempt without releasing again', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
+    Bus::fake();
+    Log::spy();
+
+    $action = sceneJobAction();
+
+    $job = runSceneJobWithFakeQueue($action, attempts: 3);
+
+    $job->assertNotReleased();
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context) => str_contains($message, 'provider returned action failure')
+            && $context['status_code'] === 500);
+    Bus::assertDispatched(PushNotificationJob::class);
+});
+
+it('records the real attempt number on each execution row across retries', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 502)]);
+
+    $action = sceneJobAction();
+    $executionId = (string) Str::uuid();
+
+    foreach ([1, 2, 3] as $attempt) {
+        runSceneJobWithFakeQueue($action, $executionId, $attempt);
+    }
+
+    expect(
+        SceneActionExecution::query()
+            ->where('scene_action_id', $action->id)
+            ->orderBy('attempt')
+            ->pluck('attempt')
+            ->all()
+    )->toBe([1, 2, 3]);
+});
+
+it('notifies only once after all retriable attempts are exhausted', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 500)]);
+    Bus::fake();
+
+    $action = sceneJobAction();
+    $executionId = (string) Str::uuid();
+
+    foreach ([1, 2, 3] as $attempt) {
+        runSceneJobWithFakeQueue($action, $executionId, $attempt);
+    }
+
+    Bus::assertDispatched(PushNotificationJob::class, 1);
 });

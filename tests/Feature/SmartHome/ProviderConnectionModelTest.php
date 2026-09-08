@@ -156,18 +156,37 @@ test('encrypted_credentials is hidden from JSON serialization', function () {
 // Unique constraint
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('unique constraint prevents two connections same user and provider', function () {
+test('unique constraint prevents two connections same user and name', function () {
     $user = User::factory()->create();
 
     ProviderConnection::factory()->create([
         'user_id' => $user->id,
-        'provider' => ProviderType::HomeAssistant->value,
+        'name' => 'Home HA',
     ]);
 
     expect(fn () => ProviderConnection::factory()->create([
         'user_id' => $user->id,
-        'provider' => ProviderType::HomeAssistant->value,
+        'name' => 'Home HA',
     ]))->toThrow(QueryException::class);
+});
+
+test('same user can have two home_assistant connections with different names', function () {
+    $user = User::factory()->create();
+
+    $home = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Home HA',
+        'provider' => ProviderType::HomeAssistant->value,
+    ]);
+
+    $office = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'name' => 'Office HA',
+        'provider' => ProviderType::HomeAssistant->value,
+    ]);
+
+    expect($home->id)->not->toBe($office->id)
+        ->and(ProviderConnection::where('user_id', $user->id)->count())->toBe(2);
 });
 
 test('different users can each have a home_assistant connection', function () {
@@ -290,4 +309,63 @@ test('factory default state has unknown status and null last_tested_at', functio
 
     expect($connection->status)->toBe(ConnectionStatus::Unknown->value)
         ->and($connection->last_tested_at)->toBeNull();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Nullable encrypted_credentials (ADR-036 Decision 4 / P02)
+//
+// A provider without server_side_execution (e.g. google_home) has no
+// credential for the server to hold. These tests exercise the model layer
+// directly, not the HTTP API — StoreProviderConnectionRequest still gates
+// `provider` against ProviderAdapterRegistry::registeredSlugs() (only
+// home_assistant today), so no HTTP path can create a null-credential
+// connection yet. This task only removes the structural restriction.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('a provider connection can be persisted with encrypted_credentials null', function () {
+    $connection = ProviderConnection::factory()->create([
+        'name' => 'My Google Home',
+        'provider' => ProviderType::GoogleHome->value,
+        'config' => [],
+        'encrypted_credentials' => null,
+    ]);
+
+    $fresh = $connection->fresh();
+
+    expect($fresh)->not->toBeNull()
+        ->and($fresh->encrypted_credentials)->toBeNull();
+});
+
+test('decryptedCredentials returns null when encrypted_credentials is null', function () {
+    $connection = ProviderConnection::factory()->create([
+        'name' => 'My Google Home',
+        'provider' => ProviderType::GoogleHome->value,
+        'config' => [],
+        'encrypted_credentials' => null,
+    ]);
+
+    expect($connection->fresh()->decryptedCredentials())->toBeNull();
+});
+
+test('encrypted_credentials null is still hidden from toArray and JSON serialization', function () {
+    $connection = ProviderConnection::factory()->create([
+        'name' => 'My Google Home',
+        'provider' => ProviderType::GoogleHome->value,
+        'config' => [],
+        'encrypted_credentials' => null,
+    ]);
+
+    $json = json_decode($connection->toJson(), true);
+
+    expect($connection->toArray())->not->toHaveKey('encrypted_credentials')
+        ->and($json)->not->toHaveKey('encrypted_credentials');
+});
+
+test('home_assistant connections created via factory default still require and store encrypted credentials', function () {
+    $connection = ProviderConnection::factory()->create();
+
+    expect($connection->provider)->toBe(ProviderType::HomeAssistant->value)
+        ->and($connection->encrypted_credentials)->not->toBeNull()
+        ->and($connection->fresh()->decryptedCredentials())->toBeArray()
+        ->and($connection->fresh()->decryptedCredentials())->toHaveKey('access_token');
 });
