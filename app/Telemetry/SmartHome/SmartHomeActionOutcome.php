@@ -23,4 +23,13 @@ enum SmartHomeActionOutcome: string
     case Failure = 'failure';
     case Unsupported = 'unsupported';
     case Unknown = 'unknown';
+
+    /**
+     * A scheduler-initiated action was intentionally skipped because its
+     * provider does not declare ScheduledExecution capability (ADR-036
+     * Decision 5). This is NOT a failure — it is a planned, capability-driven
+     * skip. Never produced by SceneActionJob (only by
+     * VibeSmartHomeDispatchService when requireScheduledExecution = true).
+     */
+    case SkippedUnsupportedExecution = 'skipped_unsupported';
 }

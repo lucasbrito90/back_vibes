@@ -77,6 +77,12 @@ final class SceneActionExecutionRecorder
             return null;
         }
 
+        if ($outcome === SmartHomeActionOutcome::SkippedUnsupportedExecution) {
+            // Planned skip — provider does not support scheduled execution
+            // (ADR-036 Decision 5). Not a failure; no failure category.
+            return null;
+        }
+
         if ($outcome === SmartHomeActionOutcome::Unsupported) {
             return 'unsupported_action';
         }
