@@ -12,6 +12,7 @@ use App\Http\Resources\ProviderConnectionResource;
 use App\Models\ProviderConnection;
 use App\SmartHome\Exceptions\ProviderConnectionException;
 use App\SmartHome\Services\ProviderDeviceSyncService;
+use App\SmartHome\Services\ReportedDeviceSyncService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -108,17 +109,38 @@ class ProviderConnectionController extends Controller
     }
 
     /**
-     * Accept a client-reported device catalog (ADR-036 Decision 7).
+     * Accept and persist a client-reported device catalog (ADR-036 Decision 7 / P05).
      *
      * Unlike sync() above (server-pull via ProviderDeviceSyncService for providers
      * with server-side credentials), this endpoint receives devices discovered by
-     * the mobile runtime and validates their shape only.
+     * the mobile runtime, validated by SyncReportedDevicesRequest, and upserts
+     * them via ReportedDeviceSyncService.
      *
-     * P05 will add ownership checks and upsert into devices — this task deliberately
-     * does not write to the devices table or persist provider_device_id anywhere.
+     * Ownership is enforced by a SCOPED LOOKUP (user_id match), not
+     * ProviderConnectionPolicy — this is the first client-reported/untrusted-input
+     * endpoint of the domain (ADR-036 Decision 7: "reported results are untrusted
+     * client input"), and it deliberately returns 404 rather than the 403 the rest
+     * of this controller uses for cross-ownership, so a non-owner cannot even
+     * confirm the connection id exists.
      */
-    public function syncReportedDevices(SyncReportedDevicesRequest $request, ProviderConnection $providerConnection): JsonResponse
-    {
-        return response()->json(['data' => $request->validated()]);
+    public function syncReportedDevices(
+        SyncReportedDevicesRequest $request,
+        ProviderConnection $providerConnection,
+        ReportedDeviceSyncService $syncService,
+    ): JsonResponse {
+        $connection = ProviderConnection::where('id', $providerConnection->id)
+            ->where('user_id', $request->user()->id)
+            ->firstOrFail();
+
+        $result = $syncService->syncReported($connection, $request->validated('devices'));
+
+        return response()->json(['data' => [
+            'provider_connection_id' => $result->provider_connection_id,
+            'synced' => $result->synced,
+            'created' => $result->created,
+            'updated' => $result->updated,
+            'offline' => $result->offline,
+            'status' => $result->status,
+        ]]);
     }
 }
