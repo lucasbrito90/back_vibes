@@ -2,10 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Models\Device;
+use App\Models\ProviderConnection;
+use App\Models\Scene;
+use App\Models\SceneAction;
 use App\Models\User;
 use App\Telemetry\SmartHome\SmartHomeActionOutcome;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Kreait\Firebase\Contract\Auth;
 use Lcobucci\JWT\Token\DataSet;
 use Lcobucci\JWT\UnencryptedToken;
@@ -50,6 +53,27 @@ function sceneActionExecutionReportUrl(): string
     return '/api/scene-action-executions/report';
 }
 
+/**
+ * A SceneAction fully owned by $user — Scene, Device, and ProviderConnection
+ * all belong to the same user, mirroring the ownership chain the controller
+ * walks (SceneAction->scene, SceneAction->device->providerConnection).
+ */
+function saerOwnedSceneAction(User $user, array $overrides = []): SceneAction
+{
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+    $device = Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+    ]);
+    $scene = Scene::factory()->create(['user_id' => $user->id]);
+
+    return SceneAction::factory()->create(array_merge([
+        'scene_id' => $scene->id,
+        'device_id' => $device->id,
+    ], $overrides));
+}
+
 function validExecutionReportPayload(array $overrides = []): array
 {
     return array_merge([
@@ -70,12 +94,13 @@ test('unauthenticated cannot report scene action execution', function () {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Happy path — validation scaffold only (no persistence)
+// Happy path — payload accepted for an owned scene action
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('valid execution report with duration_ms returns 202 and echoes submitted payload', function () {
     $user = saerUser('fb-saer-valid');
-    $payload = validExecutionReportPayload();
+    $action = saerOwnedSceneAction($user);
+    $payload = validExecutionReportPayload(['scene_action_id' => $action->id]);
 
     saerAuth($user);
 
@@ -86,7 +111,8 @@ test('valid execution report with duration_ms returns 202 and echoes submitted p
 
 test('valid execution report without duration_ms returns 202', function () {
     $user = saerUser('fb-saer-no-duration');
-    $payload = validExecutionReportPayload(['duration_ms' => null]);
+    $action = saerOwnedSceneAction($user);
+    $payload = validExecutionReportPayload(['scene_action_id' => $action->id]);
     unset($payload['duration_ms']);
 
     saerAuth($user);
@@ -100,7 +126,11 @@ test('valid execution report without duration_ms returns 202', function () {
 
 test('each SmartHomeActionOutcome value is accepted individually', function (SmartHomeActionOutcome $outcome) {
     $user = saerUser('fb-saer-outcome-'.$outcome->value);
-    $payload = validExecutionReportPayload(['outcome' => $outcome->value]);
+    $action = saerOwnedSceneAction($user);
+    $payload = validExecutionReportPayload([
+        'scene_action_id' => $action->id,
+        'outcome' => $outcome->value,
+    ]);
 
     saerAuth($user);
 
@@ -115,7 +145,7 @@ test('each SmartHomeActionOutcome value is accepted individually', function (Sma
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Validation errors
+// Validation errors — shape only, checked before any ownership lookup
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('malformed scene_execution_id returns 422', function () {
@@ -170,21 +200,4 @@ test('negative duration_ms returns 422', function () {
     ]), saerHeaders())
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['duration_ms']);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// No persistence (P06 scope boundary — P07 owns upsert/idempotency)
-// ─────────────────────────────────────────────────────────────────────────────
-
-test('valid execution report does not change scene_action_executions table row count', function () {
-    $user = saerUser('fb-saer-no-write');
-
-    $before = DB::table('scene_action_executions')->count();
-
-    saerAuth($user);
-
-    $this->postJson(sceneActionExecutionReportUrl(), validExecutionReportPayload(), saerHeaders())
-        ->assertAccepted();
-
-    expect(DB::table('scene_action_executions')->count())->toBe($before);
 });
