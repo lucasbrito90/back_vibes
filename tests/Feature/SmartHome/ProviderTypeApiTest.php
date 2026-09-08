@@ -148,6 +148,62 @@ test('known provider registry is a strict superset of the server-side adapter re
         ->and($googleHome['credentials'])->toBe([]);
 });
 
+/**
+ * Regression for a JSON-contract bug found in PR #31 review: an empty
+ * PHP array serializes to a JSON array `[]`, but `config`/`credentials`
+ * are keyed maps and must serialize as a JSON object `{}` even when
+ * empty — otherwise a strongly-typed client sees a type change
+ * (object -> array) the moment a provider has zero fields.
+ *
+ * $response->json() is NOT sufficient proof: PHP's associative json_decode
+ * collapses both `{}` and `[]` to an empty array, masking the exact bug
+ * this test exists to catch. This test instead inspects (a) the raw JSON
+ * bytes, and (b) a non-associative decode, where `{}` becomes stdClass
+ * and `[]` stays an array — the two forms are only distinguishable this way.
+ */
+test('empty config/credentials serialize as a JSON object, not a JSON array', function () {
+    $user = ptyUser('fb-pt-empty-object-shape');
+
+    ptyAuth($user);
+
+    $raw = $this->getJson('/api/provider-types', ptyHeaders())->assertOk()->getContent();
+
+    expect($raw)->not->toBeFalse();
+
+    // (a) Raw-bytes proof: locate google_home's object slice and assert the
+    // exact substrings, so no decoder can mask array vs. object.
+    $googleHomeStart = strpos($raw, '"slug":"google_home"');
+    expect($googleHomeStart)->not->toBeFalse('google_home must be present in the raw response.');
+
+    $googleHomeSlice = substr($raw, $googleHomeStart, 200);
+
+    expect($googleHomeSlice)->toContain('"config":{}')
+        ->and($googleHomeSlice)->toContain('"credentials":{}')
+        ->and($googleHomeSlice)->not->toContain('"config":[]')
+        ->and($googleHomeSlice)->not->toContain('"credentials":[]');
+
+    // (b) Non-associative decode proof: {} => stdClass, [] => array.
+    /** @var object{data: array<int, object{slug: string, config: mixed, credentials: mixed}>} $decoded */
+    $decoded = json_decode($raw, associative: false, flags: JSON_THROW_ON_ERROR);
+
+    $googleHome = collect($decoded->data)->first(fn ($d) => $d->slug === 'google_home');
+
+    expect($googleHome)->not->toBeNull()
+        ->and($googleHome->config)->toBeInstanceOf(stdClass::class)
+        ->and($googleHome->credentials)->toBeInstanceOf(stdClass::class);
+
+    // Home Assistant is unaffected: non-empty maps still decode as objects
+    // with the same keys as before this fix (keyed maps were always
+    // objects when non-empty — only the empty case was broken).
+    $homeAssistant = collect($decoded->data)->first(fn ($d) => $d->slug === 'home_assistant');
+
+    expect($homeAssistant)->not->toBeNull()
+        ->and($homeAssistant->config)->toBeInstanceOf(stdClass::class)
+        ->and($homeAssistant->config->base_url)->not->toBeNull()
+        ->and($homeAssistant->credentials)->toBeInstanceOf(stdClass::class)
+        ->and($homeAssistant->credentials->access_token)->not->toBeNull();
+});
+
 test('response never includes credential values or example tokens', function () {
     $user = ptyUser('fb-pt-no-secrets');
 

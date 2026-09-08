@@ -30,10 +30,17 @@ class ProviderTypeResource extends JsonResource
     }
 
     /**
+     * `config`/`credentials` are keyed maps, never JSON arrays — a provider
+     * with no fields (e.g. google_home, which has nothing to collect
+     * server-side) must still serialize as `{}`, not `[]`. PHP's json_encode
+     * treats an empty array as a JSON array regardless of its declared
+     * shape, so an empty map is cast to stdClass to force object encoding.
+     * This applies to every provider descriptor, not just google_home.
+     *
      * @param  array<string, ProviderFieldSchema>  $fields
-     * @return array<string, array{type: string, required: bool, format?: string}>
+     * @return array<string, array{type: string, required: bool, format?: string}>|object
      */
-    private function schemaToArray(array $fields): array
+    private function schemaToArray(array $fields): array|object
     {
         $mapped = [];
 
@@ -41,6 +48,6 @@ class ProviderTypeResource extends JsonResource
             $mapped[$key] = $field->toArray();
         }
 
-        return $mapped;
+        return $mapped === [] ? (object) [] : $mapped;
     }
 }
