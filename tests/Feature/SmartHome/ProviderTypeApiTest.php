@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use App\SmartHome\Contracts\ProviderAdapter;
+use App\SmartHome\ProviderAdapterRegistry;
 use App\SmartHome\ProviderType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Kreait\Firebase\Contract\Auth;
@@ -86,7 +88,7 @@ test('response lists home_assistant with label and field schemas matching connec
         ]);
 });
 
-test('reserved provider slug not registered in adapter registry is absent from response', function () {
+test('reserved provider slug not registered as a known provider is absent from response', function () {
     $user = ptyUser('fb-pt-reserved');
 
     ptyAuth($user);
@@ -99,8 +101,51 @@ test('reserved provider slug not registered in adapter registry is absent from r
         ->and($slugs)->not->toContain(ProviderType::Tuya->value)
         ->and($slugs)->not->toContain(ProviderType::PhilipsHue->value)
         ->and($slugs)->not->toContain(ProviderType::Alexa->value)
-        ->and($slugs)->not->toContain(ProviderType::GoogleHome->value)
         ->and($slugs)->not->toContain(ProviderType::Matter->value);
+});
+
+/**
+ * ADR-036 Decision 3 — the Known Provider Registry (config('smart_home.known_providers'))
+ * strictly SUPERSEDES the old assumption that "known provider" == "has a
+ * ProviderAdapter". Every adapter slug is a known provider, but not every
+ * known provider has an adapter (google_home is device-side only and has
+ * no ProviderAdapter — see ADR-036 §1-3). This test proves the new
+ * invariant directly, replacing the coverage removed above.
+ */
+test('known provider registry is a strict superset of the server-side adapter registry', function () {
+    $user = ptyUser('fb-pt-known-superset');
+
+    ptyAuth($user);
+
+    $adapterSlugs = app(ProviderAdapterRegistry::class)->registeredSlugs();
+
+    // Invariant: every adapter-registered slug is resolvable as a
+    // ProviderAdapter — Home Assistant is unaffected by this task.
+    expect($adapterSlugs)->toBe(['home_assistant'])
+        ->and(app(ProviderAdapterRegistry::class)->forSlug('home_assistant'))
+        ->toBeInstanceOf(ProviderAdapter::class);
+
+    $response = $this->getJson('/api/provider-types', ptyHeaders())->assertOk();
+    $slugs = collect($response->json('data'))->pluck('slug')->all();
+
+    // google_home is a known provider (appears here) WITHOUT being in the
+    // adapter registry — the superset relationship, exercised end to end.
+    expect($slugs)->toContain(ProviderType::GoogleHome->value)
+        ->and($adapterSlugs)->not->toContain(ProviderType::GoogleHome->value)
+        ->and(fn () => app(ProviderAdapterRegistry::class)->forSlug('google_home'))
+        ->toThrow(InvalidArgumentException::class, 'Unsupported smart home provider [google_home].');
+
+    // Home Assistant still appears and is still adapter-resolvable —
+    // no regression to the pre-P01 behavior for the MVP provider.
+    expect($slugs)->toContain(ProviderType::HomeAssistant->value)
+        ->and($adapterSlugs)->toContain(ProviderType::HomeAssistant->value);
+
+    $googleHome = collect($response->json('data'))->firstWhere('slug', ProviderType::GoogleHome->value);
+
+    expect($googleHome)->not->toBeNull()
+        ->and($googleHome['label'])->toBe('Google Home')
+        ->and($googleHome['config'])->toBe([])
+        ->and($googleHome['credentials'])->toBe([]);
 });
 
 test('response never includes credential values or example tokens', function () {

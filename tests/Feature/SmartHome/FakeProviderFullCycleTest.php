@@ -56,6 +56,10 @@ function registerFakeProviderForHttpCycle(): FakeProviderAdapter
 {
     config([
         'smart_home.adapters.'.FakeProviderAdapter::PROVIDER_SLUG => FakeProviderAdapter::class,
+        'smart_home.known_providers' => array_merge(
+            config('smart_home.known_providers', []),
+            [FakeProviderAdapter::PROVIDER_SLUG],
+        ),
         'smart_home.provider_descriptors.'.FakeProviderAdapter::PROVIDER_SLUG => [
             'label' => 'Fake Provider',
             'config' => [

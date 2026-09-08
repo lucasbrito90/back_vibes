@@ -21,6 +21,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Known Providers (ADR-036 Decision 3)
+    |--------------------------------------------------------------------------
+    |
+    | Source of truth for provider IDENTITY — every slug the platform knows
+    | about, independent of whether it has a server-side ProviderAdapter.
+    | `adapters` above is a SUBSET of this list, never the other way round:
+    | every adapter slug belongs to a known provider, but a known provider
+    | (e.g. google_home, which is device-side only — see ADR-036) does not
+    | need an adapter entry. ProviderDescriptorRegistry reads from this list,
+    | not from ProviderAdapterRegistry::registeredSlugs().
+    |
+    | This is metadata/identity only. It does NOT make a provider eligible
+    | for ProviderConnection creation — StoreProviderConnectionRequest still
+    | validates the `provider` field against ProviderAdapterRegistry, which
+    | is unchanged by this list (server-side connection creation semantics
+    | for adapter-less providers are a separate, not-yet-scoped decision).
+    |
+    */
+
+    'known_providers' => [
+        'home_assistant',
+        'google_home',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Smart Home Providers
     |--------------------------------------------------------------------------
     |
@@ -37,7 +63,8 @@ return [
     |--------------------------------------------------------------------------
     |
     | Static metadata exposed via GET /api/provider-types. Describes field
-    | shapes only — never credential values. Slugs must match registered adapters.
+    | shapes only — never credential values. Slugs must match `known_providers`
+    | above (a strict superset of registered adapter slugs).
     |
     */
 
@@ -58,6 +85,18 @@ return [
                     'required' => true,
                 ],
             ],
+        ],
+
+        // Google Home has no server-side credential to collect (ADR-036
+        // Decision 3/4 — the Home APIs are a device-side SDK, not a
+        // server-reachable API). Empty config/credentials is the honest
+        // shape today, not a placeholder: there is nothing to type into a
+        // connection form. Execution capabilities are added by P03; do not
+        // anticipate that here.
+        'google_home' => [
+            'label' => 'Google Home',
+            'config' => [],
+            'credentials' => [],
         ],
 
     ],
