@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Crypt;
  * @property string $name
  * @property string $provider
  * @property array $config
- * @property string $encrypted_credentials
+ * @property string|null $encrypted_credentials
  * @property string $status
  * @property Carbon|null $last_tested_at
  * @property Carbon $created_at
@@ -75,14 +75,20 @@ final class ProviderConnection extends Model
     /**
      * Decrypt and return provider credentials.
      *
-     * Returns the original credentials array (e.g. ['access_token' => '...']).
-     * Only call this in the adapter layer — never expose the result in an API
-     * resource or log output.
+     * Returns the original credentials array (e.g. ['access_token' => '...']),
+     * or null when this connection holds no server-side credential at all
+     * (ADR-036 Decision 4 — a provider without server_side_execution, e.g.
+     * google_home). Only call this in the adapter layer — never expose the
+     * result in an API resource or log output.
      *
-     * @return array<string, mixed>
+     * @return array<string, mixed>|null
      */
-    public function decryptedCredentials(): array
+    public function decryptedCredentials(): ?array
     {
+        if ($this->encrypted_credentials === null) {
+            return null;
+        }
+
         return json_decode(Crypt::decryptString($this->encrypted_credentials), true);
     }
 
