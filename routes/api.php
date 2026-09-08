@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\ProviderConnectionController;
 use App\Http\Controllers\Api\ProviderTypeController;
 use App\Http\Controllers\Api\PushTokenController;
 use App\Http\Controllers\Api\SceneActionController;
+use App\Http\Controllers\Api\SceneActionExecutionReportController;
 use App\Http\Controllers\Api\SceneController;
 use App\Http\Controllers\Api\SceneDispatchController;
 use App\Http\Controllers\Api\SceneExecutionController;
@@ -47,6 +48,8 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::post('provider-connections/{providerConnection}/devices/sync', [ProviderConnectionController::class, 'syncReportedDevices'])
         ->name('provider-connections.devices.sync');
     Route::apiResource('devices', DeviceController::class);
+    Route::post('scene-action-executions/report', [SceneActionExecutionReportController::class, 'store'])
+        ->name('scene-action-executions.report');
     Route::apiResource('scenes', SceneController::class);
 
     Route::get('schedules/{schedule}/executions', [ScheduleExecutionController::class, 'index']);
