@@ -75,6 +75,13 @@ function registerFakeProviderForHttpCycle(): FakeProviderAdapter
                     'required' => true,
                 ],
             ],
+            'execution_capabilities' => [
+                'device_discovery',
+                'state_read',
+                'interactive_execution',
+                'server_side_execution',
+                'scheduled_execution',
+            ],
         ],
     ]);
 

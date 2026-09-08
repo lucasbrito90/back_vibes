@@ -1,6 +1,7 @@
 <?php
 
 use App\SmartHome\Adapters\HomeAssistantAdapter;
+use App\SmartHome\ProviderExecutionCapability;
 
 return [
 
@@ -66,6 +67,12 @@ return [
     | shapes only — never credential values. Slugs must match `known_providers`
     | above (a strict superset of registered adapter slugs).
     |
+    | execution_capabilities (ADR-036 Decision 2) is a closed vocabulary
+    | (App\SmartHome\ProviderExecutionCapability) describing what the
+    | PROVIDER can do at the execution layer — orthogonal to, and never
+    | merged or cross-validated with, a DEVICE's own capabilities
+    | (ADR-033's `can_*` vocabulary).
+    |
     */
 
     'provider_descriptors' => [
@@ -85,18 +92,35 @@ return [
                     'required' => true,
                 ],
             ],
+            // Home Assistant is the server-side/scheduled provider — it
+            // declares the full vocabulary except automation_delegation
+            // (reserved, unused in v1.6.0).
+            'execution_capabilities' => [
+                ProviderExecutionCapability::DeviceDiscovery->value,
+                ProviderExecutionCapability::StateRead->value,
+                ProviderExecutionCapability::InteractiveExecution->value,
+                ProviderExecutionCapability::ServerSideExecution->value,
+                ProviderExecutionCapability::ScheduledExecution->value,
+            ],
         ],
 
         // Google Home has no server-side credential to collect (ADR-036
         // Decision 3/4 — the Home APIs are a device-side SDK, not a
         // server-reachable API). Empty config/credentials is the honest
         // shape today, not a placeholder: there is nothing to type into a
-        // connection form. Execution capabilities are added by P03; do not
-        // anticipate that here.
+        // connection form.
         'google_home' => [
             'label' => 'Google Home',
             'config' => [],
             'credentials' => [],
+            // Device-side only (ADR-036 §1-3): the Home APIs have no
+            // server-reachable surface, so neither server_side_execution
+            // nor scheduled_execution is declared.
+            'execution_capabilities' => [
+                ProviderExecutionCapability::DeviceDiscovery->value,
+                ProviderExecutionCapability::StateRead->value,
+                ProviderExecutionCapability::InteractiveExecution->value,
+            ],
         ],
 
     ],

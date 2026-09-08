@@ -80,3 +80,21 @@ test('descriptor registry all returns known providers, a superset of adapter-reg
     expect($slugs)->toBe(['home_assistant', 'google_home'])
         ->and(makeRegistry()->registeredSlugs())->toBe(['home_assistant']);
 });
+
+test('descriptor registry rejects a provider descriptor declaring an unknown execution capability', function () {
+    config(['smart_home.known_providers' => ['home_assistant', 'google_home', 'broken_provider']]);
+    config([
+        'smart_home.provider_descriptors.broken_provider' => [
+            'label' => 'Broken Provider',
+            'config' => [],
+            'credentials' => [],
+            'execution_capabilities' => ['not_a_real_capability'],
+        ],
+    ]);
+
+    expect(fn () => app(ProviderDescriptorRegistry::class)->forSlug('broken_provider'))
+        ->toThrow(
+            InvalidArgumentException::class,
+            'Provider descriptor for [broken_provider] declares unknown execution capability [not_a_real_capability].',
+        );
+});

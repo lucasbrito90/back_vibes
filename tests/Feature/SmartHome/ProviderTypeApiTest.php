@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\User;
 use App\SmartHome\Contracts\ProviderAdapter;
 use App\SmartHome\ProviderAdapterRegistry;
+use App\SmartHome\ProviderExecutionCapability;
 use App\SmartHome\ProviderType;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Kreait\Firebase\Contract\Auth;
@@ -60,6 +61,7 @@ test('authenticated user can list registered provider types', function () {
                     'label',
                     'config',
                     'credentials',
+                    'execution_capabilities',
                 ],
             ],
         ]);
@@ -202,6 +204,66 @@ test('empty config/credentials serialize as a JSON object, not a JSON array', fu
         ->and($homeAssistant->config->base_url)->not->toBeNull()
         ->and($homeAssistant->credentials)->toBeInstanceOf(stdClass::class)
         ->and($homeAssistant->credentials->access_token)->not->toBeNull();
+});
+
+/**
+ * ADR-036 Decision 2 (P03) — declared execution capabilities per provider.
+ * Home Assistant is the server-side/scheduled provider and declares the
+ * full vocabulary except automation_delegation (reserved, unused in
+ * v1.6.0). Google Home is device-side only (ADR-036 §1-3, no
+ * server-reachable API) and declares neither server_side_execution nor
+ * scheduled_execution.
+ */
+test('provider types response declares the correct execution capabilities per provider', function () {
+    $user = ptyUser('fb-pt-execution-capabilities');
+
+    ptyAuth($user);
+
+    $response = $this->getJson('/api/provider-types', ptyHeaders())->assertOk();
+    $data = collect($response->json('data'));
+
+    $homeAssistant = $data->firstWhere('slug', ProviderType::HomeAssistant->value);
+    $googleHome = $data->firstWhere('slug', ProviderType::GoogleHome->value);
+
+    expect($homeAssistant['execution_capabilities'])->toEqualCanonicalizing([
+        ProviderExecutionCapability::DeviceDiscovery->value,
+        ProviderExecutionCapability::StateRead->value,
+        ProviderExecutionCapability::InteractiveExecution->value,
+        ProviderExecutionCapability::ServerSideExecution->value,
+        ProviderExecutionCapability::ScheduledExecution->value,
+    ])->and($homeAssistant['execution_capabilities'])
+        ->not->toContain(ProviderExecutionCapability::AutomationDelegation->value);
+
+    expect($googleHome['execution_capabilities'])->toEqualCanonicalizing([
+        ProviderExecutionCapability::DeviceDiscovery->value,
+        ProviderExecutionCapability::StateRead->value,
+        ProviderExecutionCapability::InteractiveExecution->value,
+    ])->and($googleHome['execution_capabilities'])
+        ->not->toContain(ProviderExecutionCapability::ServerSideExecution->value)
+        ->not->toContain(ProviderExecutionCapability::ScheduledExecution->value)
+        ->not->toContain(ProviderExecutionCapability::AutomationDelegation->value);
+});
+
+/**
+ * The vocabulary itself is closed (App\SmartHome\ProviderExecutionCapability)
+ * — every value any provider declares must be one of its 6 cases. This is
+ * enforced structurally by ProviderDescriptor::fromConfigArray() (throws on
+ * an unknown value), exercised here through the real HTTP response rather
+ * than unit-testing the DTO in isolation.
+ */
+test('every declared execution capability belongs to the closed vocabulary', function () {
+    $user = ptyUser('fb-pt-execution-capabilities-closed');
+
+    ptyAuth($user);
+
+    $response = $this->getJson('/api/provider-types', ptyHeaders())->assertOk();
+
+    foreach ($response->json('data') as $descriptor) {
+        foreach ($descriptor['execution_capabilities'] as $capability) {
+            expect(ProviderExecutionCapability::tryFrom($capability))
+                ->not->toBeNull("Provider [{$descriptor['slug']}] declares unknown execution capability [{$capability}].");
+        }
+    }
 });
 
 test('response never includes credential values or example tokens', function () {

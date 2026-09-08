@@ -26,6 +26,14 @@ class ProviderTypeResource extends JsonResource
             'label' => $this->label,
             'config' => $this->schemaToArray($this->config),
             'credentials' => $this->schemaToArray($this->credentials),
+            // ADR-036 Decision 2 — provider-level execution capabilities.
+            // A genuine list (order-independent set of strings), unlike
+            // config/credentials above, so it always serializes as a JSON
+            // array — no empty-map/empty-list ambiguity to correct here.
+            'execution_capabilities' => array_map(
+                fn ($capability) => $capability->value,
+                $this->executionCapabilities,
+            ),
         ];
     }
 
