@@ -8,6 +8,9 @@ use App\Jobs\SmartHome\SceneActionJob;
 use App\Models\SceneAction;
 use App\Models\Vibe;
 use App\SmartHome\DTOs\SmartHomeDispatchResult;
+use App\SmartHome\ProviderDescriptorRegistry;
+use App\SmartHome\ProviderExecutionCapability;
+use App\Telemetry\SmartHome\SmartHomeActionOutcome;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Str;
 
@@ -27,7 +30,22 @@ use Illuminate\Support\Str;
  */
 final class VibeSmartHomeDispatchService
 {
-    public function dispatch(Vibe $vibe): SmartHomeDispatchResult
+    public function __construct(
+        private readonly ProviderDescriptorRegistry $descriptorRegistry,
+        private readonly SceneActionExecutionRecorder $executionRecorder,
+    ) {}
+
+    /**
+     * Dispatch SceneActionJob for each action in the vibe's linked Scene.
+     *
+     * @param  bool  $requireScheduledExecution  When true (scheduler context),
+     *                                           actions whose provider does not declare ScheduledExecution are skipped
+     *                                           and recorded with SmartHomeActionOutcome::SkippedUnsupportedExecution
+     *                                           (ADR-036 Decision 5). Default false preserves the existing behaviour
+     *                                           for all callers (manual dispatch via VibeSmartHomeDispatchController
+     *                                           passes no value and is unaffected).
+     */
+    public function dispatch(Vibe $vibe, bool $requireScheduledExecution = false): SmartHomeDispatchResult
     {
         $sceneExecutionId = (string) Str::uuid();
 
@@ -45,11 +63,19 @@ final class VibeSmartHomeDispatchService
 
         $dispatched = 0;
         $skipped = 0;
+        $skippedUnsupported = 0;
         $actionIds = [];
 
         foreach ($actions as $action) {
             if ($action->device === null) {
                 $skipped++;
+
+                continue;
+            }
+
+            if ($requireScheduledExecution && ! $this->providerSupportsScheduledExecution($action)) {
+                $skippedUnsupported++;
+                $this->recordSkippedUnsupported($sceneExecutionId, $action);
 
                 continue;
             }
@@ -66,6 +92,55 @@ final class VibeSmartHomeDispatchService
             skipped: $skipped,
             action_ids: $actionIds,
             scene_execution_id: $sceneExecutionId,
+            skipped_unsupported_execution: $skippedUnsupported,
+        );
+    }
+
+    /**
+     * Check whether the action's provider declares ScheduledExecution.
+     *
+     * Resolved via ProviderDescriptorRegistry — capability, never a provider
+     * slug comparison. Unknown slugs propagate as exceptions (caught by the
+     * caller DispatchDueSchedulesCommand::dispatchSmartHomeAfterSchedule).
+     */
+    private function providerSupportsScheduledExecution(SceneAction $action): bool
+    {
+        $descriptor = $this->descriptorRegistry->forSlug($action->device->provider);
+
+        return in_array(
+            ProviderExecutionCapability::ScheduledExecution,
+            $descriptor->executionCapabilities,
+            true,
+        );
+    }
+
+    /**
+     * Record one scene_action_executions row for the skipped action.
+     *
+     * Delegates entirely to SceneActionExecutionRecorder (fail-open, never
+     * throws). The connection may be null if loaded lazily and the FK was
+     * cleaned up; in that case no row is written (the skip is already counted
+     * in skipped_unsupported_execution on the DispatchResult).
+     */
+    private function recordSkippedUnsupported(string $sceneExecutionId, SceneAction $action): void
+    {
+        $device = $action->device;
+        $connection = $device->relationLoaded('providerConnection')
+            ? $device->getRelation('providerConnection')
+            : $device->providerConnection;
+
+        if ($connection === null) {
+            return;
+        }
+
+        $this->executionRecorder->record(
+            sceneExecutionId: $sceneExecutionId,
+            action: $action,
+            device: $device,
+            connection: $connection,
+            outcome: SmartHomeActionOutcome::SkippedUnsupportedExecution,
+            executedAt: now(),
+            attempt: 1,
         );
     }
 
@@ -87,7 +162,7 @@ final class VibeSmartHomeDispatchService
         }
 
         return $scene->actions()
-            ->with('device')
+            ->with(['device', 'device.providerConnection'])
             ->orderBy('sort_order')
             ->get();
     }

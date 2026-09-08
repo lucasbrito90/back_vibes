@@ -213,7 +213,7 @@ final class DispatchDueSchedulesCommand extends Command
 
             $dispatchTelemetry->wrap(
                 SmartHomeDispatchEntryPoint::Scheduled,
-                fn () => $smartHomeDispatch->dispatch($vibe),
+                fn () => $smartHomeDispatch->dispatch($vibe, requireScheduledExecution: true),
                 fn (SmartHomeDispatchResult $result) => [$result->dispatched, $result->skipped],
             );
         } catch (Throwable $e) {
