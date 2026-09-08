@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreProviderConnectionRequest;
+use App\Http\Requests\SyncReportedDevicesRequest;
 use App\Http\Requests\UpdateProviderConnectionRequest;
 use App\Http\Resources\ProviderConnectionResource;
 use App\Models\ProviderConnection;
@@ -104,5 +105,20 @@ class ProviderConnectionController extends Controller
             'offline' => $result->offline,
             'status' => $result->status,
         ]]);
+    }
+
+    /**
+     * Accept a client-reported device catalog (ADR-036 Decision 7).
+     *
+     * Unlike sync() above (server-pull via ProviderDeviceSyncService for providers
+     * with server-side credentials), this endpoint receives devices discovered by
+     * the mobile runtime and validates their shape only.
+     *
+     * P05 will add ownership checks and upsert into devices — this task deliberately
+     * does not write to the devices table or persist provider_device_id anywhere.
+     */
+    public function syncReportedDevices(SyncReportedDevicesRequest $request, ProviderConnection $providerConnection): JsonResponse
+    {
+        return response()->json(['data' => $request->validated()]);
     }
 }
