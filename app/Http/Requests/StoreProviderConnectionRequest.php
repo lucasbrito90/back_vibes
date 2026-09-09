@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests;
 
-use App\SmartHome\ProviderAdapterRegistry;
+use App\SmartHome\ProviderDescriptorRegistry;
 use App\SmartHome\Validation\ProviderConnectionValidationRulesBuilder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -18,8 +18,13 @@ class StoreProviderConnectionRequest extends FormRequest
 
     public function rules(): array
     {
-        $adapterRegistry = app(ProviderAdapterRegistry::class);
-        $registeredSlugs = $adapterRegistry->registeredSlugs();
+        // Provider IDENTITY (ADR-036 Decision 3) — known_providers is a superset
+        // of ProviderAdapterRegistry's server-side adapter slugs. A known
+        // provider (e.g. google_home) may have no ProviderAdapter at all, so
+        // eligibility for ProviderConnection creation must come from here, not
+        // from adapter registration.
+        $descriptorRegistry = app(ProviderDescriptorRegistry::class);
+        $registeredSlugs = $descriptorRegistry->knownSlugs();
 
         $rules = [
             'name' => [

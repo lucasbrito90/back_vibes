@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Requests;
 
 use App\Models\ProviderConnection;
-use App\SmartHome\ProviderAdapterRegistry;
+use App\SmartHome\ProviderDescriptorRegistry;
 use App\SmartHome\Validation\ProviderConnectionValidationRulesBuilder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -19,8 +19,12 @@ class UpdateProviderConnectionRequest extends FormRequest
 
     public function rules(): array
     {
-        $adapterRegistry = app(ProviderAdapterRegistry::class);
-        $registeredSlugs = $adapterRegistry->registeredSlugs();
+        // Provider IDENTITY (ADR-036 Decision 3) — same source as
+        // StoreProviderConnectionRequest, for architectural consistency: any
+        // FormRequest validating the `provider` field must use known_providers,
+        // never ProviderAdapterRegistry's server-side adapter slugs.
+        $descriptorRegistry = app(ProviderDescriptorRegistry::class);
+        $registeredSlugs = $descriptorRegistry->knownSlugs();
 
         $rules = [
             'name' => [

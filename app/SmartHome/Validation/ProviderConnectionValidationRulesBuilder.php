@@ -56,8 +56,13 @@ final class ProviderConnectionValidationRulesBuilder
      */
     private function configRules(ProviderDescriptor $descriptor, bool $isUpdate): array
     {
+        // Container-level rule: 'present' (not 'required') — the key must exist
+        // in the payload (protects against total omission), but an empty array
+        // is a valid value for providers whose descriptor declares no fields
+        // (e.g. google_home). Per-field enforcement happens below via
+        // fieldRules(), which still uses 'required' where the descriptor says so.
         $rules = [
-            'config' => [$isUpdate ? 'sometimes' : 'required', 'array'],
+            'config' => [$isUpdate ? 'sometimes' : 'present', 'array'],
         ];
 
         foreach ($descriptor->config as $key => $schema) {
@@ -72,8 +77,12 @@ final class ProviderConnectionValidationRulesBuilder
      */
     private function credentialRules(ProviderDescriptor $descriptor, bool $isUpdate): array
     {
+        // Same 'present' vs 'required' reasoning as configRules() above — a
+        // provider with no server-side credential (ADR-036 Decision 4, e.g.
+        // google_home) must be able to send an empty encrypted_credentials
+        // object without being rejected for "field is required".
         $rules = [
-            'encrypted_credentials' => [$isUpdate ? 'sometimes' : 'required', 'array'],
+            'encrypted_credentials' => [$isUpdate ? 'sometimes' : 'present', 'array'],
         ];
 
         foreach ($descriptor->credentials as $key => $schema) {
