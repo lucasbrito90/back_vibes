@@ -46,7 +46,17 @@ class ProviderConnectionController extends Controller
         ]);
 
         $connection->user_id = $request->user()->id;
-        $connection->setEncryptedCredentials($validated['encrypted_credentials']);
+
+        // ADR-036 Decision 4: a provider without server_side_execution has no
+        // credential for the server to hold — a placeholder value must not be
+        // invented. Encrypting an empty array would produce exactly that kind
+        // of placeholder (a real, non-null ciphertext of "[]"), so it is only
+        // set when the client actually sent credential data; otherwise the
+        // column remains genuinely NULL (fillable already covers this).
+        if ($validated['encrypted_credentials'] !== []) {
+            $connection->setEncryptedCredentials($validated['encrypted_credentials']);
+        }
+
         $connection->save();
 
         return (new ProviderConnectionResource($connection))->response()->setStatusCode(201);
