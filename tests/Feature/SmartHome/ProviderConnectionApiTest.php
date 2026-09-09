@@ -534,3 +534,144 @@ test('user cannot delete another users connection', function () {
 
     expect(ProviderConnection::find($bobConn->id))->not->toBeNull();
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P12-BE — google_home ProviderConnection creation (ADR-036 Decisions 3/4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function googleHomeConnectionPayload(): array
+{
+    return [
+        'name' => 'My Google Home',
+        'provider' => 'google_home',
+        'config' => [],
+        'encrypted_credentials' => [],
+    ];
+}
+
+test('store creates a google_home connection with empty config and credentials', function () {
+    $user = pcUser('fb-pc-store-gh-ok');
+
+    pcAuth($user);
+
+    $response = $this->postJson('/api/provider-connections', googleHomeConnectionPayload(), pcHeaders())
+        ->assertCreated();
+
+    expect($response->json('data.provider'))->toBe('google_home')
+        ->and($response->json('data'))->not->toHaveKey('encrypted_credentials');
+});
+
+test('google_home connection stores encrypted_credentials as genuinely NULL, not an encrypted empty placeholder', function () {
+    $user = pcUser('fb-pc-store-gh-null-cred');
+
+    pcAuth($user);
+
+    $response = $this->postJson('/api/provider-connections', googleHomeConnectionPayload(), pcHeaders())
+        ->assertCreated();
+
+    $connection = ProviderConnection::findOrFail($response->json('data.id'))->fresh();
+
+    expect($connection->getRawOriginal('encrypted_credentials'))->toBeNull()
+        ->and($connection->decryptedCredentials())->toBeNull();
+});
+
+test('store still rejects missing config.base_url for home_assistant after the present/required fix', function () {
+    $user = pcUser('fb-pc-store-gh-regression-config');
+
+    pcAuth($user);
+
+    $this->postJson('/api/provider-connections', [
+        ...validConnectionPayload(),
+        'config' => [],
+    ], pcHeaders())->assertUnprocessable()
+        ->assertJsonValidationErrors(['config.base_url']);
+});
+
+test('store still rejects missing encrypted_credentials.access_token for home_assistant after the present/required fix', function () {
+    $user = pcUser('fb-pc-store-gh-regression-cred');
+
+    pcAuth($user);
+
+    $this->postJson('/api/provider-connections', [
+        ...validConnectionPayload(),
+        'encrypted_credentials' => [],
+    ], pcHeaders())->assertUnprocessable()
+        ->assertJsonValidationErrors(['encrypted_credentials.access_token']);
+});
+
+test('store still rejects an unregistered provider (alexa) with the exact existing message', function () {
+    $user = pcUser('fb-pc-store-gh-regression-alexa');
+
+    pcAuth($user);
+
+    $response = $this->postJson('/api/provider-connections', [
+        ...validConnectionPayload(),
+        'provider' => 'alexa',
+    ], pcHeaders())->assertUnprocessable()
+        ->assertJsonValidationErrors(['provider']);
+
+    expect($response->json('errors.provider.0'))
+        ->toBe('The selected smart home provider is not registered.');
+});
+
+test('store rejects google_home payload with config key entirely omitted from the request', function () {
+    $user = pcUser('fb-pc-store-gh-omit-config');
+
+    pcAuth($user);
+
+    $payload = googleHomeConnectionPayload();
+    unset($payload['config']);
+
+    $this->postJson('/api/provider-connections', $payload, pcHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['config']);
+});
+
+test('store rejects google_home payload with encrypted_credentials key entirely omitted from the request', function () {
+    $user = pcUser('fb-pc-store-gh-omit-cred');
+
+    pcAuth($user);
+
+    $payload = googleHomeConnectionPayload();
+    unset($payload['encrypted_credentials']);
+
+    $this->postJson('/api/provider-connections', $payload, pcHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['encrypted_credentials']);
+});
+
+test('user cannot show another users google_home connection', function () {
+    $alice = pcUser('fb-pc-gh-show-alice');
+    $bob = pcUser('fb-pc-gh-show-bob');
+
+    $bobConn = ProviderConnection::factory()->create([
+        'user_id' => $bob->id,
+        'provider' => 'google_home',
+        'config' => [],
+        'encrypted_credentials' => null,
+    ]);
+
+    pcAuth($alice);
+
+    $this->getJson("/api/provider-connections/{$bobConn->id}", pcHeaders())->assertForbidden();
+});
+
+test('user cannot update another users google_home connection', function () {
+    $alice = pcUser('fb-pc-gh-upd-alice');
+    $bob = pcUser('fb-pc-gh-upd-bob');
+
+    $bobConn = ProviderConnection::factory()->create([
+        'user_id' => $bob->id,
+        'provider' => 'google_home',
+        'name' => 'Bob GH',
+        'config' => [],
+        'encrypted_credentials' => null,
+    ]);
+
+    pcAuth($alice);
+
+    $this->patchJson("/api/provider-connections/{$bobConn->id}", ['name' => 'Stolen'], pcHeaders())
+        ->assertForbidden();
+
+    expect($bobConn->fresh()->name)->toBe('Bob GH');
+});

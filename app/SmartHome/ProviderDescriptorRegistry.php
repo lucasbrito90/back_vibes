@@ -57,7 +57,7 @@ final class ProviderDescriptorRegistry
     /**
      * @return list<string>
      */
-    private function knownSlugs(): array
+    public function knownSlugs(): array
     {
         /** @var mixed $slugs */
         $slugs = config('smart_home.known_providers', []);
