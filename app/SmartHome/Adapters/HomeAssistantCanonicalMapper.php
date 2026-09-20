@@ -11,7 +11,9 @@ use App\SmartHome\Canonical\CapabilityCatalog;
 use App\SmartHome\Canonical\CapabilityContract;
 use App\SmartHome\Canonical\CapabilityId;
 use App\SmartHome\Canonical\CommandValidator;
+use App\SmartHome\Canonical\DeviceState;
 use App\SmartHome\Canonical\Operation;
+use DateTimeInterface;
 
 /**
  * Translates between Home Assistant's conventions and the canonical model
@@ -167,6 +169,51 @@ final class HomeAssistantCanonicalMapper
     public function providerScaleToPercent(float $raw): int
     {
         return (int) round($raw / self::HA_BRIGHTNESS_MAX * 100);
+    }
+
+    /**
+     * Provider-raw status → canonical DeviceState (ADR-037 §6, CSDM-05).
+     *
+     * Everything Home-Assistant-shaped is consumed here: the `state` string
+     * becomes a boolean, `attributes.brightness` on the 0-255 scale becomes a
+     * percentage. What comes out is keyed by the same capability vocabulary a
+     * command uses, so reading and commanding stop being two languages.
+     *
+     * Values are reported only for capabilities the device actually declares.
+     * A lamp with no dimmer has no `brightness` entry — not a null one, and
+     * not a zero, which would read as "off at full darkness" rather than
+     * "this device has no such capability".
+     *
+     * @param  array<string, mixed>  $attributes  provider-native attributes
+     * @param  list<Capability>  $capabilities  the device's canonical capabilities
+     */
+    public function toDeviceState(
+        ?string $rawState,
+        array $attributes,
+        array $capabilities,
+        ?DateTimeInterface $readAt = null,
+    ): DeviceState {
+        $declared = [];
+
+        foreach ($capabilities as $capability) {
+            $declared[$capability->id->value] = $capability;
+        }
+
+        $values = [];
+
+        $power = $this->stateToPower($rawState);
+
+        if ($power !== null && isset($declared[CapabilityId::Power->value])) {
+            $values[CapabilityId::Power->value] = $power;
+        }
+
+        $rawBrightness = $attributes['brightness'] ?? null;
+
+        if (isset($declared[CapabilityId::Brightness->value]) && (is_int($rawBrightness) || is_float($rawBrightness))) {
+            $values[CapabilityId::Brightness->value] = $this->providerScaleToPercent((float) $rawBrightness);
+        }
+
+        return DeviceState::of($values, $declared, $readAt);
     }
 
     /** Home Assistant's `state` string → the canonical boolean power value. */
