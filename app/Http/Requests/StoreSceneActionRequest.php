@@ -6,6 +6,7 @@ namespace App\Http\Requests;
 
 use App\Models\Device;
 use App\SmartHome\ActionType;
+use App\SmartHome\Canonical\CommandValidator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -72,7 +73,31 @@ class StoreSceneActionRequest extends FormRequest
                 'action_type',
                 'The selected action is not supported by this device.'
             );
+
+            return;
         }
+
+        // CSDM-02 (ADR-037 §7): the capability gate above answers "may this
+        // device do this at all"; this answers "is the value the caller sent
+        // admissible". Without it `parameters` stays free-form JSON all the way
+        // into the provider payload — the confirmed brightness: 9999 defect.
+        $result = app(CommandValidator::class)->validateLegacyAction(
+            $device->capabilities,
+            (string) $actionType,
+            $this->parametersForValidation(),
+        );
+
+        if ($result->wasRejected()) {
+            $validator->errors()->add('parameters', (string) $result->message);
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function parametersForValidation(): array
+    {
+        $parameters = $this->input('parameters');
+
+        return is_array($parameters) ? $parameters : [];
     }
 
     private function validateDeviceOwnership(Validator $validator): void
