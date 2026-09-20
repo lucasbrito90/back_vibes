@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Requests;
 
 use App\SmartHome\ActionType;
+use App\SmartHome\Canonical\Capability;
+use App\SmartHome\Canonical\CapabilityContract;
+use App\SmartHome\Canonical\Exceptions\InvalidCapabilityDefinitionException;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
@@ -45,8 +48,26 @@ class SyncReportedDevicesRequest extends FormRequest
                     continue;
                 }
 
+                // CSDM-04: a client that speaks the canonical contract sends the
+                // envelope — and, during the transition window, the legacy keys
+                // beside it (ADR-037 §8). Before this, the vocabulary check
+                // rejected `contract_version` and `capabilities` as unknown
+                // ADR-033 keys, which 422'd every Google device import the
+                // moment its mapper went canonical.
+                $isCanonical = CapabilityContract::isCanonicalEnvelope($capabilities);
+
+                if ($isCanonical) {
+                    $this->validateCanonicalEnvelope($validator, $index, $capabilities);
+                }
+
                 foreach (array_keys($capabilities) as $capabilityKey) {
                     if (! is_string($capabilityKey)) {
+                        continue;
+                    }
+
+                    // The two envelope keys are validated above, as a contract
+                    // rather than as vocabulary entries.
+                    if ($isCanonical && in_array($capabilityKey, [CapabilityContract::VERSION_KEY, 'capabilities'], true)) {
                         continue;
                     }
 
@@ -73,6 +94,67 @@ class SyncReportedDevicesRequest extends FormRequest
             'devices.*.type' => ['nullable', 'string'],
             'devices.*.capabilities' => ['nullable', 'array'],
         ];
+    }
+
+    /**
+     * Validates the canonical half of a reported capability payload
+     * (ADR-037 §2-§5, CSDM-04).
+     *
+     * A client is not trusted to send a well-formed contract just because it
+     * claims a version: every entry is rebuilt through the same validating
+     * value object the rest of the domain uses, so a malformed capability is
+     * refused here rather than persisted and discovered later at dispatch.
+     *
+     * A major version this server does not understand is refused outright. The
+     * alternative — storing it and hoping — is how a transition window turns
+     * into corrupted data.
+     *
+     * @param  array<string, mixed>  $capabilities
+     */
+    private function validateCanonicalEnvelope(Validator $validator, int|string $index, array $capabilities): void
+    {
+        $declared = $capabilities[CapabilityContract::VERSION_KEY] ?? null;
+        $major = is_string($declared) ? CapabilityContract::majorVersionOf($declared) : null;
+
+        if ($major !== CapabilityContract::majorVersionOf(CapabilityContract::VERSION)) {
+            $validator->errors()->add(
+                "devices.$index.capabilities.".CapabilityContract::VERSION_KEY,
+                'The reported capability contract version is not supported by this server.',
+            );
+
+            return;
+        }
+
+        $entries = $capabilities['capabilities'] ?? null;
+
+        if (! is_array($entries)) {
+            $validator->errors()->add(
+                "devices.$index.capabilities.capabilities",
+                'A canonical capability envelope must carry a capabilities map.',
+            );
+
+            return;
+        }
+
+        foreach ($entries as $capabilityId => $entry) {
+            if (! is_array($entry)) {
+                $validator->errors()->add(
+                    "devices.$index.capabilities.capabilities.$capabilityId",
+                    'Each canonical capability must be an object.',
+                );
+
+                continue;
+            }
+
+            try {
+                Capability::fromArray($entry);
+            } catch (InvalidCapabilityDefinitionException $e) {
+                $validator->errors()->add(
+                    "devices.$index.capabilities.capabilities.$capabilityId",
+                    $e->getMessage(),
+                );
+            }
+        }
     }
 
     /**

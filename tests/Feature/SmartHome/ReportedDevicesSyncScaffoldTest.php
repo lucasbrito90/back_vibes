@@ -347,3 +347,145 @@ test('an invalid payload does not change the devices table row count', function 
 
     expect(DB::table('devices')->count())->toBe($before);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CSDM-04 — the canonical envelope must survive this endpoint (ADR-037 §8)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('sync accepts a client-reported device carrying the canonical capability envelope', function () {
+    $user = rdsUser('fb-rds-canonical');
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+
+    rdsAuth($user);
+
+    // The payload the Google mapper emits after CSDM-04: canonical envelope
+    // plus the legacy keys, exactly as the Home Assistant mapper stores
+    // server-side. Before this task the vocabulary check rejected
+    // `contract_version` and `capabilities` as unknown ADR-033 keys, which
+    // would have 422'd every Google device import.
+    $this->postJson(reportedDevicesSyncUrl($connection), [
+        'devices' => [[
+            'provider_device_id' => 'gh-canonical-1',
+            'name' => 'Hall Light',
+            'type' => 'lighting',
+            'capabilities' => [
+                'contract_version' => '1.0.0',
+                'capabilities' => [
+                    'power' => [
+                        'id' => 'power',
+                        'access' => 'read_write',
+                        'operations' => ['on', 'off', 'toggle'],
+                        'constraints' => ['type' => 'boolean'],
+                    ],
+                    'brightness' => [
+                        'id' => 'brightness',
+                        'access' => 'read_write',
+                        'operations' => ['set'],
+                        'constraints' => [
+                            'type' => 'number',
+                            'min' => 0,
+                            'max' => 100,
+                            'step' => 1,
+                            'unit' => 'percent',
+                        ],
+                    ],
+                ],
+                'can_turn_on' => [],
+                'can_turn_off' => [],
+                'can_toggle' => [],
+                'can_set_brightness' => ['min' => 0, 'max' => 255, 'step' => 1],
+            ],
+        ]],
+    ], rdsHeaders())->assertOk();
+});
+
+test('sync rejects a canonical envelope whose capability is malformed', function () {
+    $user = rdsUser('fb-rds-canonical-bad');
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+
+    rdsAuth($user);
+
+    // A client is not trusted just because it declares a version: every entry
+    // is rebuilt through the same validating value object the domain uses.
+    $this->postJson(reportedDevicesSyncUrl($connection), [
+        'devices' => [[
+            'provider_device_id' => 'gh-bad-1',
+            'name' => 'Broken Light',
+            'type' => 'lighting',
+            'capabilities' => [
+                'contract_version' => '1.0.0',
+                'capabilities' => [
+                    'brightness' => [
+                        'id' => 'brightness',
+                        'access' => 'read_write',
+                        'operations' => ['set'],
+                        // Matter's scale where the canonical percentage belongs.
+                        'constraints' => [
+                            'type' => 'number',
+                            'min' => 0,
+                            'max' => 254,
+                            'step' => 1,
+                            'unit' => 'percent',
+                        ],
+                    ],
+                ],
+            ],
+        ]],
+    ], rdsHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['devices.0.capabilities.capabilities.brightness']);
+});
+
+test('sync rejects a canonical envelope from a contract major version this server does not know', function () {
+    $user = rdsUser('fb-rds-canonical-major');
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+
+    rdsAuth($user);
+
+    // Storing an unknown major and hoping is how a transition window turns
+    // into corrupted data.
+    $this->postJson(reportedDevicesSyncUrl($connection), [
+        'devices' => [[
+            'provider_device_id' => 'gh-future-1',
+            'name' => 'Future Light',
+            'type' => 'lighting',
+            'capabilities' => [
+                'contract_version' => '2.0.0',
+                'capabilities' => [],
+            ],
+        ]],
+    ], rdsHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['devices.0.capabilities.contract_version']);
+});
+
+test('sync still rejects an unknown legacy capability key alongside a canonical envelope', function () {
+    $user = rdsUser('fb-rds-canonical-mixed');
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+
+    rdsAuth($user);
+
+    // Accepting the envelope must not turn the legacy half into a free-for-all.
+    $this->postJson(reportedDevicesSyncUrl($connection), [
+        'devices' => [[
+            'provider_device_id' => 'gh-mixed-1',
+            'name' => 'Mixed Light',
+            'type' => 'lighting',
+            'capabilities' => [
+                'contract_version' => '1.0.0',
+                'capabilities' => [
+                    'power' => [
+                        'id' => 'power',
+                        'access' => 'read_write',
+                        'operations' => ['on', 'off', 'toggle'],
+                        'constraints' => ['type' => 'boolean'],
+                    ],
+                ],
+                'can_turn_on' => [],
+                'can_do_something_invented' => [],
+            ],
+        ]],
+    ], rdsHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['devices.0.capabilities.can_do_something_invented']);
+});
