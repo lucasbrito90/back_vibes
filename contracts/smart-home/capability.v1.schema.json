@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ixora-app.app/contracts/smart-home/capability.v1.schema.json",
+  "title": "Ixora Canonical Smart Home Capability Contract",
+  "description": "ADR-037 Canonical Smart Home Device Model — Capability/Operation/Constraint. Shared SCHEMA, not shared code (ADR-037 §11): back_vibes (PHP), front_vibes (TypeScript) and the Android plugin (Kotlin) each validate against this artifact in their own idiom. Canonical copy lives in ixora-infra/contracts/smart-home/; this file is the vendored copy back_vibes reads. No provider literal (Home Assistant 0-255, Google Home 0-254, trait or service names) may ever appear in this contract.",
+  "x-contract-version": "1.0.0",
+
+  "type": "object",
+  "required": ["contract_version", "capabilities"],
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {
+      "description": "Semver of this contract, accompanying persisted/transmitted data so a consumer can detect which shape it is reading during the transition window (ADR-037 §10). Additive changes are minor; changing an existing constraint's required shape is major.",
+      "type": "string",
+      "pattern": "^1\\.\\d+\\.\\d+$"
+    },
+    "capabilities": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/capabilityId" },
+      "additionalProperties": { "$ref": "#/$defs/capability" }
+    }
+  },
+
+  "$defs": {
+    "capabilityId": {
+      "description": "Closed, governed vocabulary (ADR-037 §2). Adding an id is a deliberate amendment to this list, never a string invented by a provider mapper.",
+      "type": "string",
+      "enum": [
+        "power",
+        "brightness",
+        "energy",
+        "current_temperature",
+        "target_temperature",
+        "hvac_mode"
+      ]
+    },
+
+    "operation": {
+      "description": "Canonical verbs, decoupled from any provider's service or command names (ADR-037 §3). `toggle` is first-class regardless of whether a provider implements it natively or as a composed read-invert-write.",
+      "type": "string",
+      "enum": ["on", "off", "toggle", "set"]
+    },
+
+    "access": {
+      "description": "A capability is something you can read, something you can command, or both — there is no third category (ADR-037 §2).",
+      "type": "string",
+      "enum": ["read", "write", "read_write"]
+    },
+
+    "capability": {
+      "type": "object",
+      "required": ["id", "access", "operations", "constraints"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/capabilityId" },
+        "access": { "$ref": "#/$defs/access" },
+        "operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/operation" },
+          "uniqueItems": true
+        },
+        "constraints": {
+          "description": "Null only when a capability has genuinely no associated value. No capability in the v1 catalog does — `power` carries {type: boolean} rather than null (ADR-037 §4, PO correction 2).",
+          "oneOf": [
+            { "$ref": "#/$defs/constraint" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+
+    "constraint": {
+      "description": "Closed tagged union (ADR-037 §4). Extended by adding a case, never by loosening an existing one.",
+      "oneOf": [
+        { "$ref": "#/$defs/numberConstraint" },
+        { "$ref": "#/$defs/enumConstraint" },
+        { "$ref": "#/$defs/booleanConstraint" }
+      ]
+    },
+
+    "numberConstraint": {
+      "type": "object",
+      "required": ["type", "min", "max", "step", "unit"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "number" },
+        "min": {
+          "description": "null means NOT KNOWN — never 'unbounded', never zero (ADR-037 §4).",
+          "type": ["number", "null"]
+        },
+        "max": {
+          "description": "null means NOT KNOWN for min/step; for max specifically, null is also how 'unbounded' is expressed (e.g. energy). Disambiguated per capability by the catalog, not by the schema.",
+          "type": ["number", "null"]
+        },
+        "step": {
+          "description": "null means NOT KNOWN — resolution undeclared by the provider.",
+          "type": ["number", "null"],
+          "exclusiveMinimum": 0
+        },
+        "unit": {
+          "description": "Mandatory unconditionally. A numeric value with a genuinely unknown unit is not representable by this model (ADR-037 §4).",
+          "type": "string",
+          "enum": ["percent", "kWh", "celsius"]
+        }
+      }
+    },
+
+    "enumConstraint": {
+      "type": "object",
+      "required": ["type", "allowed_values"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "enum" },
+        "allowed_values": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+
+    "booleanConstraint": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "boolean" }
+      }
+    }
+  },
+
+  "x-catalog": {
+    "description": "Per-capability rules the JSON Schema vocabulary alone cannot express: which operations each capability admits, which constraint type it must carry, and its canonical unit. PHP/Kotlin/TS validators read this to enforce the closed catalog. Concrete min/max/step are per-device and supplied by each provider mapper — EXCEPT brightness, whose 0-100/percent range is fixed by ADR-037 §5 and is not a mapper's choice.",
+    "power": {
+      "operations": ["on", "off", "toggle"],
+      "constraint_type": "boolean",
+      "default_access": "read_write"
+    },
+    "brightness": {
+      "operations": ["set"],
+      "constraint_type": "number",
+      "unit": "percent",
+      "fixed_range": { "min": 0, "max": 100, "step": 1 },
+      "default_access": "read_write"
+    },
+    "energy": {
+      "operations": [],
+      "constraint_type": "number",
+      "unit": "kWh",
+      "default_access": "read"
+    },
+    "current_temperature": {
+      "operations": [],
+      "constraint_type": "number",
+      "unit": "celsius",
+      "default_access": "read"
+    },
+    "target_temperature": {
+      "operations": ["set"],
+      "constraint_type": "number",
+      "unit": "celsius",
+      "default_access": "read_write"
+    },
+    "hvac_mode": {
+      "operations": ["set"],
+      "constraint_type": "enum",
+      "default_access": "read_write"
+    }
+  }
+}
