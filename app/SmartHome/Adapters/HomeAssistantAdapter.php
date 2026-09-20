@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\SmartHome\Adapters;
 
 use App\Models\ProviderConnection;
+use App\SmartHome\Canonical\ActionTypeTranslation;
+use App\SmartHome\Canonical\CommandValidator;
 use App\SmartHome\Contracts\ProviderAdapter;
 use App\SmartHome\DeviceStatus;
 use App\SmartHome\DeviceType;
@@ -165,8 +167,11 @@ final class HomeAssistantAdapter implements ProviderAdapter
         // boundary-discovery rationale.
         return $this->providerTelemetry->wrap(
             $domain,
-            function () use ($connection, $deviceId, $domain, $service, $parameters) {
-                $payload = array_merge(['entity_id' => $deviceId], $parameters);
+            function () use ($connection, $deviceId, $domain, $service, $parameters, $action) {
+                $payload = array_merge(
+                    ['entity_id' => $deviceId],
+                    $this->toProviderParameters($action, $parameters),
+                );
 
                 try {
                     $response = $this->client($connection)
@@ -300,6 +305,48 @@ final class HomeAssistantAdapter implements ProviderAdapter
     }
 
     /**
+     * Converts canonical command parameters into this provider's payload
+     * (CSDM-03, ADR-037 §12).
+     *
+     * A canonical command carries `value` on the domain's own scale — 65 means
+     * 65 percent, on every provider. Home Assistant wants 0-255, so the mapper
+     * converts here, once, at the only boundary allowed to know that.
+     *
+     * Parameters still written in the pre-ADR-037 shape pass through untouched.
+     * They are Home-Assistant-shaped already, they work today, and CSDM-02
+     * range-checks them against the bounds the device itself declared. CSDM-07
+     * removes this branch once no legacy row remains.
+     *
+     * @param  array<string, mixed>  $parameters
+     * @return array<string, mixed>
+     */
+    private function toProviderParameters(string $action, array $parameters): array
+    {
+        if (! array_key_exists(CommandValidator::VALUE_KEY, $parameters)) {
+            return $parameters;
+        }
+
+        $canonical = ActionTypeTranslation::tryFromWire($action);
+
+        if ($canonical === null) {
+            return $parameters;
+        }
+
+        [$capabilityId, $operation] = $canonical;
+
+        $converted = (new HomeAssistantCanonicalMapper)
+            ->toServiceCall($capabilityId, $operation, $parameters)['payload'];
+
+        // Anything the canonical contract does not govern (a fade time, say)
+        // still travels; only the canonical `value` is replaced by its
+        // provider-scaled equivalent.
+        $passthrough = $parameters;
+        unset($passthrough[CommandValidator::VALUE_KEY]);
+
+        return array_merge($passthrough, $converted);
+    }
+
+    /**
      * Derive Ixora capabilities from HA domain and entity attributes (ADR-033 §4).
      *
      * Boolean on/off (and toggle where applicable) are granted per domain without
@@ -312,28 +359,15 @@ final class HomeAssistantAdapter implements ProviderAdapter
      */
     private function deriveCapabilities(string $domain, array $attributes): array
     {
-        $capabilities = match ($domain) {
-            'light', 'switch', 'fan' => [
-                'can_turn_on' => [],
-                'can_turn_off' => [],
-                'can_toggle' => [],
-            ],
-            'media_player' => [
-                'can_turn_on' => [],
-                'can_turn_off' => [],
-            ],
-            default => [],
-        };
+        // CSDM-03: the shape is now the canonical envelope (ADR-037 §2-§5),
+        // produced by the mapper that owns this provider's conventions — and,
+        // during the transition window, the legacy `can_*` keys alongside it.
+        // See HomeAssistantCanonicalMapper::toStoredPayload() for why both.
+        $mapper = new HomeAssistantCanonicalMapper;
 
-        if ($domain === 'light' && $this->lightSupportsBrightness($attributes)) {
-            $capabilities['can_set_brightness'] = [
-                'min' => 0,
-                'max' => 255,
-                'step' => 1,
-            ];
-        }
-
-        return $capabilities;
+        return $mapper->toStoredPayload(
+            $mapper->capabilitiesFor($domain, $attributes, $this->lightSupportsBrightness($attributes)),
+        );
     }
 
     /**

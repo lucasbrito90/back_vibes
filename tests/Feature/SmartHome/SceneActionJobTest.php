@@ -9,6 +9,7 @@ use App\Models\ProviderConnection;
 use App\Models\Scene;
 use App\Models\SceneAction;
 use App\Models\SceneActionExecution;
+use App\SmartHome\Adapters\HomeAssistantCanonicalMapper;
 use App\SmartHome\Services\SceneActionRetryPolicy;
 use App\Telemetry\Contracts\Meter;
 use App\Telemetry\Contracts\Tracer;
@@ -810,4 +811,67 @@ it('still dispatches a value the device genuinely accepts', function () {
     runSceneJob($action);
 
     Http::assertSent(fn (Request $request) => $request['brightness'] === 200);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CSDM-03 — canonical command → provider scale, end to end (ADR-037 §12)
+// ─────────────────────────────────────────────────────────────────────────────
+
+it('converts a canonical brightness into the provider scale on the wire', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/light/turn_on' => Http::response([], 200)]);
+
+    $mapper = new HomeAssistantCanonicalMapper;
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            // The shape a device carries after it re-syncs under this mapper.
+            'capabilities' => $mapper->toStoredPayload($mapper->capabilitiesFor('light', [], true)),
+        ],
+        actionOverrides: [
+            'action_type' => 'set_brightness',
+            // The domain speaks percent. 65 means 65%, on every provider.
+            'parameters' => ['value' => 65],
+        ],
+    );
+
+    runSceneJob($action);
+
+    // …and Home Assistant receives its own scale, converted once, at the only
+    // boundary allowed to know it exists. This is the gap CSDM-02 left open.
+    Http::assertSent(fn (Request $request) => $request['brightness'] === 166
+        && ! array_key_exists('value', $request->data()));
+});
+
+it('still rejects an out-of-range canonical value before converting anything', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+
+    $mapper = new HomeAssistantCanonicalMapper;
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => $mapper->toStoredPayload($mapper->capabilitiesFor('light', [], true)),
+        ],
+        actionOverrides: ['action_type' => 'set_brightness', 'parameters' => ['value' => 9999]],
+    );
+
+    runSceneJob($action);
+
+    Http::assertNothingSent();
+});
+
+it('keeps dispatching power actions unchanged for a canonically-synced device', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/light/turn_on' => Http::response([], 200)]);
+
+    $mapper = new HomeAssistantCanonicalMapper;
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => $mapper->toStoredPayload($mapper->capabilitiesFor('light', [], true)),
+        ],
+        actionOverrides: ['action_type' => 'turn_on', 'parameters' => null],
+    );
+
+    runSceneJob($action);
+
+    Http::assertSent(fn (Request $request) => $request['entity_id'] === 'light.living_room');
 });
