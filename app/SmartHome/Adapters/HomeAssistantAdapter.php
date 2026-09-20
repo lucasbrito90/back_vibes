@@ -132,13 +132,25 @@ final class HomeAssistantAdapter implements ProviderAdapter
 
                 $data = (array) $response->json();
                 $rawState = isset($data['state']) ? (string) $data['state'] : null;
+                $attributes = isset($data['attributes']) && is_array($data['attributes']) ? $data['attributes'] : [];
+
+                // CSDM-05: the same read, expressed canonically. The provider
+                // string and attribute dictionary stay for the boundary; the
+                // domain reads `state`, which speaks the capability vocabulary.
+                $mapper = new HomeAssistantCanonicalMapper;
+                $domain = $this->domainFor($deviceId);
 
                 return new DeviceStatusResult(
                     provider_device_id: isset($data['entity_id']) ? (string) $data['entity_id'] : $deviceId,
                     status: $this->mapStatus($rawState),
                     raw_state: $rawState,
-                    attributes: isset($data['attributes']) && is_array($data['attributes']) ? $data['attributes'] : [],
+                    attributes: $attributes,
                     last_changed: isset($data['last_changed']) ? (string) $data['last_changed'] : null,
+                    state: $mapper->toDeviceState(
+                        $rawState,
+                        $attributes,
+                        $mapper->capabilitiesFor($domain, $attributes, $this->lightSupportsBrightness($attributes)),
+                    ),
                 );
             },
             $this->mapDeviceType($domain)->value,
