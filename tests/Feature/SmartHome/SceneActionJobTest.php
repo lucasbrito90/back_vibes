@@ -745,3 +745,69 @@ it('notifies only once after all retriable attempts are exhausted', function () 
 
     Bus::assertDispatched(PushNotificationJob::class, 1);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CSDM-02 — canonical command validation at dispatch (ADR-037 §7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+it('never sends an out-of-range parameter to the provider', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+
+    // The stored row is the defect ADR-037 Context §5 describes: free-form JSON
+    // that today would be merged straight into the provider payload.
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => [
+                'can_turn_on' => [],
+                'can_set_brightness' => ['min' => 0, 'max' => 255, 'step' => 1],
+            ],
+        ],
+        actionOverrides: ['action_type' => 'set_brightness', 'parameters' => ['brightness' => 9999]],
+    );
+
+    runSceneJob($action);
+
+    Http::assertNothingSent();
+});
+
+it('records an out-of-range command as a failure, not as an unsupported action', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/*' => Http::response([], 200)]);
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => [
+                'can_turn_on' => [],
+                'can_set_brightness' => ['min' => 0, 'max' => 255, 'step' => 1],
+            ],
+        ],
+        actionOverrides: ['action_type' => 'set_brightness', 'parameters' => ['brightness' => 9999]],
+    );
+
+    runSceneJob($action);
+
+    // The device supports dimming perfectly well — the command is simply
+    // malformed. Recording it as Unsupported would hide a real defect among
+    // routine capability mismatches on every dashboard that groups by outcome.
+    $execution = SceneActionExecution::where('scene_action_id', $action->id)->first();
+
+    expect($execution)->not->toBeNull()
+        ->and($execution->outcome)->toBe(SmartHomeActionOutcome::Failure->value);
+});
+
+it('still dispatches a value the device genuinely accepts', function () {
+    Http::fake([SCENE_JOB_HA_BASE.'/api/services/light/turn_on' => Http::response([], 200)]);
+
+    $action = sceneJobAction(
+        deviceOverrides: [
+            'capabilities' => [
+                'can_turn_on' => [],
+                'can_set_brightness' => ['min' => 0, 'max' => 255, 'step' => 1],
+            ],
+        ],
+        actionOverrides: ['action_type' => 'set_brightness', 'parameters' => ['brightness' => 200]],
+    );
+
+    runSceneJob($action);
+
+    Http::assertSent(fn (Request $request) => $request['brightness'] === 200);
+});

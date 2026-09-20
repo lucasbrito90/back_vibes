@@ -91,6 +91,50 @@ final class LegacyCapabilityMapReader
     }
 
     /**
+     * The bounds a legacy row declares for its brightness key, exactly as
+     * stored — unitless, on whatever scale the provider that wrote them used.
+     *
+     * TRANSITIONAL, and the one place in the domain permitted to look at them.
+     * Everywhere else, legacy bounds are discarded on read (see `read()`)
+     * because they are a provider scale masquerading as domain data. They are
+     * surfaced here for a single purpose: so CommandValidator can range-check a
+     * command still expressed in the legacy shape against the device's OWN
+     * declared limits, rather than either waving it through unvalidated (the
+     * defect ADR-037 Context §5 names) or rejecting a payload that works today.
+     *
+     * Note what this does NOT do: it never names a scale. 0-255 appears nowhere;
+     * the numbers come from the row the provider wrote. CSDM-03 deletes this
+     * method when the Home Assistant mapper starts emitting canonical rows and
+     * the legacy shape stops being produced.
+     *
+     * @param  array<string, mixed>|null  $legacy
+     * @return array{min: float|null, max: float|null, step: float|null}|null
+     */
+    public static function declaredBrightnessBounds(?array $legacy): ?array
+    {
+        if ($legacy === null || ! array_key_exists(self::LEGACY_BRIGHTNESS_KEY, $legacy)) {
+            return null;
+        }
+
+        $raw = $legacy[self::LEGACY_BRIGHTNESS_KEY];
+
+        if (! is_array($raw)) {
+            return null;
+        }
+
+        return [
+            'min' => self::numberOrNull($raw['min'] ?? null),
+            'max' => self::numberOrNull($raw['max'] ?? null),
+            'step' => self::numberOrNull($raw['step'] ?? null),
+        ];
+    }
+
+    private static function numberOrNull(mixed $value): ?float
+    {
+        return is_int($value) || is_float($value) ? (float) $value : null;
+    }
+
+    /**
      * @param  array<string, mixed>  $legacy
      * @return list<Operation>
      */
