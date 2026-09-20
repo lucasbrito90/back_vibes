@@ -79,9 +79,26 @@ function providerExtensibilityBoundaryFiles(): array
 }
 
 /**
- * Assignment-shaped regex patterns matching `$slug` hard-coded as a provider
- * value — the same 4 shapes the original 'fake'-only guard checked, now
- * parameterized so any provider slug can be checked against them.
+ * Regex patterns matching `$slug` hard-coded as a provider value, in the two
+ * shapes that actually defeat provider neutrality.
+ *
+ * ASSIGNMENT (the original 'fake'-only shapes, now parameterized): writing the
+ * slug into a payload, a model attribute or an array key.
+ *
+ * COMPARISON (P14): branching on the slug — `=== 'x'`, `!= 'x'`, `in_array`,
+ * `match`, `str_contains`. This is the shape ADR-036 forbids most explicitly
+ * ("o domínio consulta capability, nunca a identidade do provider") and the
+ * one most likely to appear in real code: nobody breaks the architecture by
+ * assigning a slug, they break it by writing an `if`. The P14 regression pass
+ * proved the guard was silent on a deliberate
+ * `if ($vibe->scene?->provider === 'google_home')` injected into a real D.1
+ * file — a blind spot inherited from the original T29 design, not a
+ * regression introduced by P01–P08.
+ *
+ * Both sides of a comparison are matched, since `'x' === $device->provider`
+ * reads the same to PHP. Patterns stay shape-anchored (never a bare substring)
+ * so prose in comments cannot false-positive — the property the original
+ * design was protecting, and which this extension preserves.
  *
  * @return list<string>
  */
@@ -90,9 +107,22 @@ function hardcodedProviderSlugPatterns(string $slug): array
     $quoted = preg_quote($slug, '/');
 
     return [
+        // ── Assignment shapes ────────────────────────────────────────────
         "/['\"]provider['\"]\\s*=>\\s*['\"]{$quoted}['\"]/",
         "/->provider\\s*=\\s*['\"]{$quoted}['\"]/",
         "/\\['provider'\\]\\s*=\\s*['\"]{$quoted}['\"]/",
+
+        // ── Comparison shapes (P14) ──────────────────────────────────────
+        // provider === 'slug' / !== / == / != , either side of the operator.
+        "/provider(?:\\(\\))?\\s*(?:===|!==|==|!=)\\s*['\"]{$quoted}['\"]/",
+        "/['\"]{$quoted}['\"]\\s*(?:===|!==|==|!=)\\s*\\\$?[A-Za-z_>\\-\\[\\]'\"]*provider/",
+        // match ($x->provider) { 'slug' => ... } and match(true) { $x->provider === 'slug' => ... }
+        "/['\"]{$quoted}['\"]\\s*=>\\s*(?!\\s*\\[)/",
+        // in_array('slug', …) / in_array($provider, ['slug', …])
+        "/in_array\\s*\\(\\s*['\"]{$quoted}['\"]/",
+        "/in_array\\s*\\([^)]*provider[^)]*['\"]{$quoted}['\"]/",
+        // str_contains / str_starts_with / === on a slug literal passed around
+        "/str_(?:contains|starts_with|ends_with)\\s*\\([^)]*['\"]{$quoted}['\"]/",
     ];
 }
 
@@ -193,6 +223,48 @@ test('boundary guard fires on a deliberate google_home/home_assistant hardcode a
     $reverted = <<<'PHP'
         <?php
         $connection = new ProviderConnection(['provider' => $providerSlug]);
+        PHP;
+
+    assertNoHardcodedProviderSlugReferences($reverted, $relativePath);
+});
+
+/**
+ * P14 — the comparison shapes. The regression pass injected
+ * `if ($vibe->scene?->provider === 'google_home')` into a real D.1 file
+ * (VibeSmartHomeDispatchService) and the guard stayed silent: it only knew
+ * assignment shapes. Branching on the slug is precisely what ADR-036 forbids
+ * — the domain must ask the capability, never the provider identity — and is
+ * the far likelier way real code breaks the boundary.
+ *
+ * Each case below is a shape that must now be caught. If any of them stops
+ * throwing, the guard has regressed back into the blind spot P14 found.
+ */
+test('boundary guard fires on every comparison-shaped provider slug hardcode (P14)', function () {
+    $relativePath = 'synthetic/DeliberateViolationFixture.php';
+
+    $violations = [
+        'strict equality' => "<?php\nif (\$vibe->scene?->provider === 'google_home') { return null; }",
+        'strict inequality' => "<?php\nif (\$device->provider !== 'home_assistant') { return; }",
+        'loose equality' => "<?php\nif (\$connection->provider == 'google_home') { return; }",
+        'yoda comparison' => "<?php\nif ('google_home' === \$action->device->provider) { return; }",
+        'match arm on the slug' => "<?php\nreturn match (\$device->provider) { 'google_home' => null, default => \$x };",
+        'in_array with slug literal' => "<?php\nif (in_array('google_home', \$slugs, true)) { return; }",
+        'in_array over a slug list' => "<?php\nif (in_array(\$device->provider, ['google_home', 'other'], true)) { return; }",
+        'str_contains on the slug' => "<?php\nif (str_contains(\$row->provider, 'google_home')) { return; }",
+    ];
+
+    foreach ($violations as $label => $contents) {
+        expect(fn () => assertNoHardcodedProviderSlugReferences($contents, $relativePath))
+            ->toThrow(Exception::class, '', "Guard must reject the {$label} shape.");
+    }
+
+    // Reverted: the same branching expressed the way D.1 files are required to
+    // — asking the execution capability, never the identity. Guard stays silent.
+    $reverted = <<<'PHP'
+        <?php
+        if (! in_array(ProviderExecutionCapability::ScheduledExecution, $descriptor->executionCapabilities, true)) {
+            return null;
+        }
         PHP;
 
     assertNoHardcodedProviderSlugReferences($reverted, $relativePath);
