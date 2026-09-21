@@ -264,6 +264,52 @@ it('does not make any synchronous HTTP request to Home Assistant during dispatch
     Http::assertNothingSent();
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-036 Decision 7 — device_action_ids is an additive field on the
+// existing response shape.
+// ─────────────────────────────────────────────────────────────────────────────
+
+it('response includes device_action_ids additively, delegating a Google Home action', function () {
+    Bus::fake();
+
+    $user = shDispatchUser();
+    $scene = shDispatchScene($user);
+    $vibe = shDispatchVibe($user, $scene);
+    $haDevice = shDispatchDevice($user);
+
+    $ghConnection = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'provider' => 'google_home',
+        'encrypted_credentials' => null,
+        'config' => [],
+    ]);
+    $ghDevice = Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $ghConnection->id,
+        'provider' => 'google_home',
+    ]);
+
+    $haAction = shDispatchSceneAction($scene, $haDevice, 0);
+    $ghAction = shDispatchSceneAction($scene, $ghDevice, 1);
+
+    shDispatchAuth($user);
+
+    $response = $this->postJson(
+        "/api/vibes/{$vibe->id}/smart-home/dispatch",
+        [],
+        shDispatchHeaders(),
+    )->assertOk()->assertJsonStructure([
+        'data' => ['vibe_id', 'dispatched', 'skipped', 'action_ids', 'scene_execution_id', 'device_action_ids'],
+    ]);
+
+    expect($response->json('data.dispatched'))->toBe(1)
+        ->and($response->json('data.action_ids'))->toBe([$haAction->id])
+        ->and($response->json('data.device_action_ids'))->toBe([$ghAction->id]);
+
+    Bus::assertDispatchedTimes(SceneActionJob::class, 1);
+    Bus::assertDispatched(SceneActionJob::class, fn (SceneActionJob $job) => $job->sceneActionId === $haAction->id);
+});
+
 it('only queues the job and does not execute the provider adapter inline', function () {
     Bus::fake();
     Http::fake();

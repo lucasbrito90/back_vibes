@@ -41,9 +41,12 @@ final class VibeSmartHomeDispatchService
      * @param  bool  $requireScheduledExecution  When true (scheduler context),
      *                                           actions whose provider does not declare ScheduledExecution are skipped
      *                                           and recorded with SmartHomeActionOutcome::SkippedUnsupportedExecution
-     *                                           (ADR-036 Decision 5). Default false preserves the existing behaviour
-     *                                           for all callers (manual dispatch via VibeSmartHomeDispatchController
-     *                                           passes no value and is unaffected).
+     *                                           (ADR-036 Decision 5). When false (manual dispatch / vibe play — the
+     *                                           default, and what VibeSmartHomeDispatchController passes), actions
+     *                                           whose provider does not declare ServerSideExecution are instead
+     *                                           collected into `device_action_ids` (ADR-036 Decision 7) rather than
+     *                                           enqueued — the mobile runtime executes them and reports the outcome
+     *                                           via POST /api/scene-action-executions/report.
      */
     public function dispatch(Vibe $vibe, bool $requireScheduledExecution = false): SmartHomeDispatchResult
     {
@@ -65,6 +68,7 @@ final class VibeSmartHomeDispatchService
         $skipped = 0;
         $skippedUnsupported = 0;
         $actionIds = [];
+        $deviceActionIds = [];
 
         foreach ($actions as $action) {
             if ($action->device === null) {
@@ -73,9 +77,15 @@ final class VibeSmartHomeDispatchService
                 continue;
             }
 
-            if ($requireScheduledExecution && ! $this->providerSupportsScheduledExecution($action)) {
-                $skippedUnsupported++;
-                $this->recordSkippedUnsupported($sceneExecutionId, $action);
+            if ($requireScheduledExecution) {
+                if (! $this->providerSupportsScheduledExecution($action)) {
+                    $skippedUnsupported++;
+                    $this->recordSkippedUnsupported($sceneExecutionId, $action);
+
+                    continue;
+                }
+            } elseif (! $this->providerSupportsServerSideExecution($action)) {
+                $deviceActionIds[] = $action->id;
 
                 continue;
             }
@@ -93,6 +103,7 @@ final class VibeSmartHomeDispatchService
             action_ids: $actionIds,
             scene_execution_id: $sceneExecutionId,
             skipped_unsupported_execution: $skippedUnsupported,
+            device_action_ids: $deviceActionIds,
         );
     }
 
@@ -109,6 +120,25 @@ final class VibeSmartHomeDispatchService
 
         return in_array(
             ProviderExecutionCapability::ScheduledExecution,
+            $descriptor->executionCapabilities,
+            true,
+        );
+    }
+
+    /**
+     * Check whether the action's provider declares ServerSideExecution.
+     *
+     * Resolved via ProviderDescriptorRegistry — capability, never a provider
+     * slug comparison. Only consulted on the requireScheduledExecution=false
+     * (manual/vibe-play) path; the scheduler path uses
+     * providerSupportsScheduledExecution() instead, unchanged.
+     */
+    private function providerSupportsServerSideExecution(SceneAction $action): bool
+    {
+        $descriptor = $this->descriptorRegistry->forSlug($action->device->provider);
+
+        return in_array(
+            ProviderExecutionCapability::ServerSideExecution,
             $descriptor->executionCapabilities,
             true,
         );

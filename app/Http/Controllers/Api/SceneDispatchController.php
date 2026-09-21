@@ -58,6 +58,11 @@ final class SceneDispatchController extends Controller
                 'skipped' => $result->skipped,
                 'action_ids' => $result->action_ids,
                 'scene_execution_id' => $result->scene_execution_id,
+                // ADR-036 Decision 7 — additive field. Actions whose provider
+                // does not declare ServerSideExecution; the mobile runtime
+                // executes them and reports via
+                // POST /api/scene-action-executions/report.
+                'device_action_ids' => $result->device_action_ids,
             ],
         ]);
     }
