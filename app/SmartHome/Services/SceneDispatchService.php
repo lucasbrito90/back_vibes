@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\SmartHome\Services;
 
-use App\Jobs\SmartHome\SceneActionJob;
 use App\Models\Scene;
 use App\Models\SceneAction;
 use App\SmartHome\DTOs\SceneDispatchResult;
@@ -30,6 +29,8 @@ use Illuminate\Support\Str;
  * - Never calls ProviderAdapterResolver or any provider adapter.
  * - Never makes HTTP requests.
  * - Actions with a missing device are skipped and counted in `skipped`.
+ * - Enqueuing goes through SceneActionDispatcher, which applies the
+ *   action's delay_seconds (per action, absolute from dispatch).
  * - The device/server-side split is resolved purely from
  *   ProviderDescriptorRegistry's execution_capabilities — never a provider
  *   slug comparison (ProviderExtensibilityBoundaryTest enforces this).
@@ -38,6 +39,7 @@ final class SceneDispatchService
 {
     public function __construct(
         private readonly ProviderDescriptorRegistry $descriptorRegistry,
+        private readonly SceneActionDispatcher $actionDispatcher,
     ) {}
 
     public function dispatch(Scene $scene): SceneDispatchResult
@@ -67,7 +69,7 @@ final class SceneDispatchService
                 continue;
             }
 
-            SceneActionJob::dispatch($action->id, $sceneExecutionId);
+            $this->actionDispatcher->dispatch($action, $sceneExecutionId);
 
             $dispatched++;
             $actionIds[] = $action->id;
