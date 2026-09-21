@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\SmartHome\Services;
 
-use App\Jobs\SmartHome\SceneActionJob;
 use App\Models\SceneAction;
 use App\Models\Vibe;
 use App\SmartHome\DTOs\SmartHomeDispatchResult;
@@ -27,12 +26,15 @@ use Illuminate\Support\Str;
  * - Never calls ProviderAdapterResolver or HomeAssistantAdapter.
  * - Never makes HTTP requests.
  * - Actions with a missing device are skipped and counted in `skipped`.
+ * - Enqueuing goes through SceneActionDispatcher, which applies the
+ *   action's delay_seconds (per action, absolute from dispatch).
  */
 final class VibeSmartHomeDispatchService
 {
     public function __construct(
         private readonly ProviderDescriptorRegistry $descriptorRegistry,
         private readonly SceneActionExecutionRecorder $executionRecorder,
+        private readonly SceneActionDispatcher $actionDispatcher,
     ) {}
 
     /**
@@ -90,7 +92,7 @@ final class VibeSmartHomeDispatchService
                 continue;
             }
 
-            SceneActionJob::dispatch($action->id, $sceneExecutionId);
+            $this->actionDispatcher->dispatch($action, $sceneExecutionId);
 
             $dispatched++;
             $actionIds[] = $action->id;
