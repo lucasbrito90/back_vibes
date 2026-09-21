@@ -7,6 +7,7 @@ namespace App\Http\Requests;
 use App\Models\Device;
 use App\Models\SceneAction;
 use App\SmartHome\ActionType;
+use App\SmartHome\Canonical\CommandValidator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -76,7 +77,34 @@ class UpdateSceneActionRequest extends FormRequest
                 'action_type',
                 'The selected action is not supported by this device.'
             );
+
+            return;
         }
+
+        // CSDM-02 (ADR-037 §7). A partial update must be validated against the
+        // resulting action, not the submitted fragment: changing only
+        // `parameters` still has to satisfy the stored action_type's
+        // constraint, and changing only `action_type` has to satisfy the
+        // stored parameters.
+        $result = app(CommandValidator::class)->validateLegacyAction(
+            $device->capabilities,
+            (string) $actionType,
+            $this->parametersForValidation($existing),
+        );
+
+        if ($result->wasRejected()) {
+            $validator->errors()->add('parameters', (string) $result->message);
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function parametersForValidation(?SceneAction $existing): array
+    {
+        $parameters = $this->has('parameters')
+            ? $this->input('parameters')
+            : $existing?->parameters;
+
+        return is_array($parameters) ? $parameters : [];
     }
 
     private function validateDeviceOwnership(Validator $validator): void

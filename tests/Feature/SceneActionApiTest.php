@@ -556,3 +556,77 @@ test('cross-user cannot reorder another users scene actions', function () {
     ], saaHeaders())
         ->assertNotFound();
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CSDM-02 — canonical command validation at write time (ADR-037 §7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('store rejects a brightness outside the range the device declares', function () {
+    $user = saaUser('fb-saa-store-brightness-range');
+    $scene = saaSceneFor($user);
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+    $device = Device::factory()->dimmableLight()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+    ]);
+
+    saaAuth($user);
+
+    // The row that, before CSDM-02, was stored happily and later merged straight
+    // into the provider payload (ADR-037 Context §5).
+    $this->postJson("/api/scenes/{$scene->id}/actions", [
+        'device_id' => $device->id,
+        'action_type' => ActionType::SetBrightness->value,
+        'parameters' => ['brightness' => 9999],
+    ], saaHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['parameters']);
+});
+
+test('store rejects a non-numeric brightness', function () {
+    $user = saaUser('fb-saa-store-brightness-type');
+    $scene = saaSceneFor($user);
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+    $device = Device::factory()->dimmableLight()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+    ]);
+
+    saaAuth($user);
+
+    $this->postJson("/api/scenes/{$scene->id}/actions", [
+        'device_id' => $device->id,
+        'action_type' => ActionType::SetBrightness->value,
+        'parameters' => ['brightness' => 'very bright'],
+    ], saaHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['parameters']);
+});
+
+test('the rejection message never names a provider', function () {
+    $user = saaUser('fb-saa-store-brightness-neutral');
+    $scene = saaSceneFor($user);
+    $connection = ProviderConnection::factory()->create(['user_id' => $user->id]);
+    $device = Device::factory()->dimmableLight()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => $connection->id,
+        'provider' => $connection->provider,
+    ]);
+
+    saaAuth($user);
+
+    $response = $this->postJson("/api/scenes/{$scene->id}/actions", [
+        'device_id' => $device->id,
+        'action_type' => ActionType::SetBrightness->value,
+        'parameters' => ['brightness' => 9999],
+    ], saaHeaders())->assertUnprocessable();
+
+    $message = (string) $response->json('errors.parameters.0');
+
+    // A user should not be able to tell which ecosystem the device came from.
+    expect($message)->not->toContain('home_assistant')
+        ->and($message)->not->toContain('Home Assistant')
+        ->and($message)->not->toContain('google');
+});

@@ -9,7 +9,10 @@ use App\Models\ProviderConnection;
 use App\Models\SceneAction;
 use App\PushNotifications\Services\PushNotificationEvents;
 use App\SmartHome\ActionType;
+use App\SmartHome\Canonical\CommandRejectionReason;
+use App\SmartHome\Canonical\CommandValidator;
 use App\SmartHome\DTOs\ActionResult;
+use App\SmartHome\Exceptions\InvalidCanonicalCommandException;
 use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
 use App\SmartHome\ProviderAdapterResolver;
 use App\SmartHome\Services\SceneActionExecutionRecorder;
@@ -122,6 +125,37 @@ final class SceneActionJob implements ShouldQueue
             function () use ($resolver, $connection, $device, $action) {
                 if (ActionType::isBlockedByDeviceCapabilities($device->capabilities, $action->action_type)) {
                     throw UnsupportedSmartHomeActionException::forAction($action->action_type);
+                }
+
+                // CSDM-02 (ADR-037 §7) — the last canonical gate before the
+                // provider mapper. Write-time validation cannot cover rows
+                // stored before it existed, nor a device whose capabilities
+                // narrowed after the action was saved, so the check is repeated
+                // here where it actually matters: one line above the call that
+                // would otherwise merge unvalidated JSON into a provider
+                // payload. The adapter remains a second line of defence, not
+                // the only one.
+                $validation = app(CommandValidator::class)->validateLegacyAction(
+                    $device->capabilities,
+                    $action->action_type,
+                    $action->parameters ?? [],
+                );
+
+                if ($validation->wasRejected()) {
+                    // The device genuinely cannot do this → Unsupported, the
+                    // same outcome the capability gate above produces. The
+                    // value is simply wrong → Failure, because the device
+                    // could have done it. Collapsing the two would hide real
+                    // defects among routine capability mismatches.
+                    throw match ($validation->reason) {
+                        CommandRejectionReason::CapabilityUnavailable,
+                        CommandRejectionReason::AccessForbidsOperation,
+                        CommandRejectionReason::OperationUnsupported => UnsupportedSmartHomeActionException::forAction($action->action_type),
+                        default => InvalidCanonicalCommandException::because(
+                            $validation->reason,
+                            (string) $validation->message,
+                        ),
+                    };
                 }
 
                 $adapter = $resolver->forProvider($connection->provider);
