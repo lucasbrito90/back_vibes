@@ -181,10 +181,16 @@ test('skipped action does not consume retry attempts — SceneActionJob is never
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Manual dispatch is unaffected (requireScheduledExecution = false by default)
+// Manual dispatch (requireScheduledExecution = false, the default) — P15 /
+// ADR-036 Decision 7: a provider without ServerSideExecution is no longer
+// enqueued as a job here either. It is delegated to the mobile runtime via
+// `device_action_ids` instead. This replaces the pre-P15 behaviour (both
+// actions enqueued, and the Google Home job later failing hard inside
+// SceneActionJob because ProviderAdapterResolver has no adapter for it —
+// the confirmed defect this task fixes).
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('manual dispatch (requireScheduledExecution=false) enqueues BOTH HA and Google Home actions', function () {
+test('manual dispatch (requireScheduledExecution=false) enqueues HA and delegates Google Home as device-side', function () {
     Bus::fake();
 
     $user = User::factory()->create();
@@ -192,14 +198,15 @@ test('manual dispatch (requireScheduledExecution=false) enqueues BOTH HA and Goo
 
     $result = app(VibeSmartHomeDispatchService::class)->dispatch($vibe);
 
-    expect($result->dispatched)->toBe(2)
+    expect($result->dispatched)->toBe(1)
         ->and($result->skipped)->toBe(0)
         ->and($result->skipped_unsupported_execution)->toBe(0)
-        ->and($result->action_ids)->toBe([$haAction->id, $ghAction->id]);
+        ->and($result->action_ids)->toBe([$haAction->id])
+        ->and($result->device_action_ids)->toBe([$ghAction->id]);
 
-    Bus::assertDispatchedTimes(SceneActionJob::class, 2);
+    Bus::assertDispatchedTimes(SceneActionJob::class, 1);
     Bus::assertDispatched(SceneActionJob::class, fn (SceneActionJob $job) => $job->sceneActionId === $haAction->id);
-    Bus::assertDispatched(SceneActionJob::class, fn (SceneActionJob $job) => $job->sceneActionId === $ghAction->id);
+    Bus::assertNotDispatched(SceneActionJob::class, fn (SceneActionJob $job) => $job->sceneActionId === $ghAction->id);
 });
 
 test('manual dispatch creates no scene_action_executions rows (no recording for scheduled-skip path)', function () {
