@@ -232,7 +232,7 @@ final readonly class Capability
             if ($this->constraints->min !== $canonical->min || $this->constraints->max !== $canonical->max) {
                 throw new InvalidCapabilityDefinitionException(
                     sprintf(
-                        'Brightness is canonically %s-%s percent (ADR-037 §5); a provider scale such as 0-255 or 0-254 must be converted at the mapper boundary, never declared here.',
+                        'Brightness is canonically %s-%s percent (ADR-037 §5); provider-native brightness scales must be converted at the mapper boundary, never declared here.',
                         $canonical->min,
                         $canonical->max,
                     ),
