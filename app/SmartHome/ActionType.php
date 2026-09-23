@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 namespace App\SmartHome;
 
+use App\SmartHome\Canonical\ActionTypeTranslation;
+use App\SmartHome\Canonical\Capability;
+use App\SmartHome\Canonical\CapabilityContract;
+use App\SmartHome\Canonical\Exceptions\InvalidCapabilityDefinitionException;
+use App\SmartHome\Canonical\LegacyCapabilityMapReader;
+
 /**
  * MVP device action types for scene_actions.
  *
@@ -55,6 +61,56 @@ enum ActionType: string
             return false;
         }
 
+        if (CapabilityContract::isCanonicalEnvelope($capabilities)) {
+            return ! self::canonicalEnvelopePermits($capabilities, $type);
+        }
+
+        if (LegacyCapabilityMapReader::isLegacyShape($capabilities)) {
+            return ! self::legacyMapPermits($capabilities, $type);
+        }
+
         return ! array_key_exists($type->requiredCapability(), $capabilities);
+    }
+
+    /**
+     * @param  array<string, mixed>  $capabilities
+     */
+    private static function canonicalEnvelopePermits(array $capabilities, self $type): bool
+    {
+        [$capabilityId, $operation] = ActionTypeTranslation::toCanonical($type);
+
+        foreach ((array) ($capabilities['capabilities'] ?? []) as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+
+            try {
+                $capability = Capability::fromArray($entry);
+            } catch (InvalidCapabilityDefinitionException) {
+                continue;
+            }
+
+            if ($capability->id === $capabilityId && $capability->supports($operation)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $capabilities
+     */
+    private static function legacyMapPermits(array $capabilities, self $type): bool
+    {
+        [$capabilityId, $operation] = ActionTypeTranslation::toCanonical($type);
+
+        foreach (LegacyCapabilityMapReader::read($capabilities) as $capability) {
+            if ($capability->id === $capabilityId && $capability->supports($operation)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
