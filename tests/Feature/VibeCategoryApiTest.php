@@ -26,7 +26,7 @@ function jwtForVibeCategoryUser(User $user): UnencryptedToken
     return $jwt;
 }
 
-function approvedAdmin(): User
+function approvedAdminForVibeCategories(): User
 {
     return User::factory()->create([
         'firebase_uid' => 'fb-vc-admin-'.uniqid(),
@@ -35,7 +35,7 @@ function approvedAdmin(): User
     ]);
 }
 
-function regularUser(): User
+function regularUserForVibeCategories(): User
 {
     return User::factory()->create([
         'firebase_uid' => 'fb-vc-user-'.uniqid(),
@@ -60,7 +60,7 @@ test('unauthenticated requests to vibe category routes return 401', function () 
 });
 
 test('regular user can list and show active vibe categories but not mutate', function () {
-    $user = regularUser();
+    $user = regularUserForVibeCategories();
     $category = VibeCategory::query()->create([
         'slug' => 'focus',
         'names' => ['en' => 'Focus'],
@@ -68,7 +68,7 @@ test('regular user can list and show active vibe categories but not mutate', fun
         'is_active' => true,
     ]);
 
-    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->times(4)->with('tok')->andReturn(jwtForVibeCategoryUser($user)));
+    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->times(5)->with('tok')->andReturn(jwtForVibeCategoryUser($user)));
 
     $this->getJson('/api/vibe-categories', ['Authorization' => 'Bearer tok'])
         ->assertOk()
@@ -96,9 +96,9 @@ test('regular user can list and show active vibe categories but not mutate', fun
 });
 
 test('approved admin can crud vibe categories', function () {
-    $admin = approvedAdmin();
+    $admin = approvedAdminForVibeCategories();
 
-    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->times(4)->with('tok')->andReturn(jwtForVibeCategoryUser($admin)));
+    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->times(3)->with('tok')->andReturn(jwtForVibeCategoryUser($admin)));
 
     $this->postJson('/api/vibe-categories', [
         'slug' => 'calm',
@@ -127,7 +127,7 @@ test('approved admin can crud vibe categories', function () {
 });
 
 test('store rejects duplicate slug with 422', function () {
-    $admin = approvedAdmin();
+    $admin = approvedAdminForVibeCategories();
     VibeCategory::query()->create([
         'slug' => 'taken',
         'names' => ['en' => 'Taken'],
@@ -146,7 +146,7 @@ test('store rejects duplicate slug with 422', function () {
 });
 
 test('update rejects slug change with 422', function () {
-    $admin = approvedAdmin();
+    $admin = approvedAdminForVibeCategories();
     $category = VibeCategory::query()->create([
         'slug' => 'stable',
         'names' => ['en' => 'Stable'],
@@ -165,7 +165,7 @@ test('update rejects slug change with 422', function () {
 });
 
 test('destroy returns 409 when category is linked to a preset', function () {
-    $admin = approvedAdmin();
+    $admin = approvedAdminForVibeCategories();
     $category = VibeCategory::query()->create([
         'slug' => 'linked',
         'names' => ['en' => 'Linked'],
@@ -183,7 +183,7 @@ test('destroy returns 409 when category is linked to a preset', function () {
 });
 
 test('destroy returns 409 when category is linked to a user vibe', function () {
-    $admin = approvedAdmin();
+    $admin = approvedAdminForVibeCategories();
     $user = User::factory()->create();
     $category = VibeCategory::query()->create([
         'slug' => 'vibe-link',
@@ -201,7 +201,7 @@ test('destroy returns 409 when category is linked to a user vibe', function () {
 });
 
 test('destroy succeeds when category has no pivots', function () {
-    $admin = approvedAdmin();
+    $admin = approvedAdminForVibeCategories();
     $category = VibeCategory::query()->create([
         'slug' => 'lonely',
         'names' => ['en' => 'Lonely'],
@@ -216,8 +216,8 @@ test('destroy succeeds when category has no pivots', function () {
 });
 
 test('include_inactive lists inactive categories only for approved admin', function () {
-    $admin = approvedAdmin();
-    $regular = regularUser();
+    $admin = approvedAdminForVibeCategories();
+    $regular = regularUserForVibeCategories();
 
     VibeCategory::query()->create([
         'slug' => 'active-cat',
@@ -251,7 +251,7 @@ test('include_inactive lists inactive categories only for approved admin', funct
 });
 
 test('inactive category show returns 404 for regular user', function () {
-    $user = regularUser();
+    $user = regularUserForVibeCategories();
     $category = VibeCategory::query()->create([
         'slug' => 'hidden-cat',
         'names' => ['en' => 'Hidden'],
@@ -266,7 +266,7 @@ test('inactive category show returns 404 for regular user', function () {
 });
 
 test('put preset categories sync replaces all links', function () {
-    $admin = approvedAdmin();
+    $admin = approvedAdminForVibeCategories();
     $preset = PresetVibe::query()->create(['name' => 'Kit', 'is_active' => true]);
     $c1 = VibeCategory::query()->create(['slug' => 'c1', 'names' => ['en' => 'C1'], 'sort_order' => 0, 'is_active' => true]);
     $c2 = VibeCategory::query()->create(['slug' => 'c2', 'names' => ['en' => 'C2'], 'sort_order' => 1, 'is_active' => true]);
@@ -287,7 +287,7 @@ test('put preset categories sync replaces all links', function () {
 });
 
 test('put preset categories rejects unknown category id with 422', function () {
-    $admin = approvedAdmin();
+    $admin = approvedAdminForVibeCategories();
     $preset = PresetVibe::query()->create(['name' => 'Kit', 'is_active' => true]);
 
     $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->once()->with('tok')->andReturn(jwtForVibeCategoryUser($admin)));
@@ -300,7 +300,7 @@ test('put preset categories rejects unknown category id with 422', function () {
 });
 
 test('regular user cannot put preset categories', function () {
-    $user = regularUser();
+    $user = regularUserForVibeCategories();
     $preset = PresetVibe::query()->create(['name' => 'Kit', 'is_active' => true]);
     $cat = VibeCategory::query()->create(['slug' => 'x', 'names' => ['en' => 'X'], 'sort_order' => 0, 'is_active' => true]);
 

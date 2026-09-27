@@ -99,7 +99,7 @@ test('backfill migration maps legacy strings to catalog pivots then drop removes
         ->value('vibe_category_id');
 
     expect($collisionCategoryId)->toBe(
-        (int) DB::table('vibe_categories')->where('slug', 'sleep-rest')->value('id')
+        (int) DB::table('vibe_categories')->where('slug', 'sleep-rest-2')->value('id')
     );
 
     runPresetCategoryDropMigration();

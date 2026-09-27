@@ -96,7 +96,7 @@ test('post and patch vibes reject category_ids with 422 and do not create pivots
         'is_active' => true,
     ]);
 
-    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->times(2)->with('tok')->andReturn(jwtForCategoryImportUser($user));
+    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->times(2)->with('tok')->andReturn(jwtForCategoryImportUser($user)));
 
     $this->postJson('/api/vibes', [
         'name' => 'No cats',
@@ -164,7 +164,7 @@ test('get api preset vibes list eager loads categories without n plus one', func
         $preset->categories()->attach($cat->id);
     }
 
-    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->once()->with('tok')->andReturn(jwtForCategoryImportUser($user));
+    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->once()->with('tok')->andReturn(jwtForCategoryImportUser($user)));
 
     DB::enableQueryLog();
     DB::flushQueryLog();
