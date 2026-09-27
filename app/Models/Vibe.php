@@ -31,6 +31,15 @@ final class Vibe extends Model
         return $this->belongsTo(Scene::class);
     }
 
+    /** @return BelongsToMany<VibeCategory, $this> */
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(VibeCategory::class, 'vibe_vibe_categories')
+            ->where('vibe_categories.is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('vibe_categories.id');
+    }
+
     public function sounds(): BelongsToMany
     {
         return $this->belongsToMany(Sound::class, 'vibe_sounds')
