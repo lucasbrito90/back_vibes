@@ -21,6 +21,7 @@ class VibeController extends Controller
         $this->authorize('viewAny', Vibe::class);
 
         $vibes = Vibe::where('user_id', $request->user()->id)
+            ->with('categories')
             ->withCount([
                 'sounds',
                 'schedules as active_schedules_count' => fn ($q) => $q->where('is_enabled', true),
@@ -40,6 +41,7 @@ class VibeController extends Controller
             'user_id' => $request->user()->id,
         ]);
 
+        $vibe->load('categories');
         $vibe->loadCount([
             'schedules as active_schedules_count' => fn ($q) => $q->where('is_enabled', true),
         ]);
@@ -51,6 +53,7 @@ class VibeController extends Controller
     {
         $this->authorize('view', $vibe);
 
+        $vibe->load(['categories']);
         $vibe->loadCount([
             'sounds',
             'schedules as active_schedules_count' => fn ($q) => $q->where('is_enabled', true),

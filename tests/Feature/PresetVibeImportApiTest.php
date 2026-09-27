@@ -56,7 +56,6 @@ test('authenticated user imports active preset with cover bundle and layers', fu
         'name' => 'Storm Kit',
         'description' => 'Layered storm',
         'cover_bundle_id' => $bundle->id,
-        'category' => 'Weather',
         'tags' => ['storm'],
         'is_active' => true,
     ]);

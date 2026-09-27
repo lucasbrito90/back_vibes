@@ -23,7 +23,7 @@ class PresetVibeController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $query = PresetVibe::query()
-            ->with(['coverBundle', 'presetVibeSounds.sound'])
+            ->with(['coverBundle', 'presetVibeSounds.sound', 'categories'])
             ->orderBy('name');
 
         $includeInactive = $request->boolean('include_inactive')
@@ -42,7 +42,7 @@ class PresetVibeController extends Controller
             abort(404);
         }
 
-        $presetVibe->load(['coverBundle', 'presetVibeSounds.sound']);
+        $presetVibe->load(['coverBundle', 'presetVibeSounds.sound', 'categories']);
 
         return new PresetVibeResource($presetVibe);
     }
@@ -103,7 +103,7 @@ class PresetVibeController extends Controller
             abort(404);
         }
 
-        $presetVibe->loadMissing(['coverBundle', 'presetVibeSounds']);
+        $presetVibe->loadMissing(['coverBundle', 'presetVibeSounds', 'categories']);
 
         $userId = (int) $request->user()->id;
 
@@ -150,10 +150,15 @@ class PresetVibeController extends Controller
                 ]);
             }
 
+            $activeCategoryIds = $presetVibe->categories->pluck('id')->all();
+            if ($activeCategoryIds !== []) {
+                $vibe->categories()->attach($activeCategoryIds);
+            }
+
             return $vibe;
         });
 
-        $vibe->load(['sounds']);
+        $vibe->load(['sounds', 'categories']);
         $vibe->loadCount('sounds');
 
         return (new VibeResource($vibe))->response()->setStatusCode(201);
