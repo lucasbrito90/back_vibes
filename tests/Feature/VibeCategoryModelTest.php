@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Vibe;
 use App\Models\VibeCategory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -62,6 +63,20 @@ test('scopeActive returns only active categories ordered by sort_order then id',
     expect($rows)->toHaveCount(2)
         ->and($rows->pluck('id')->all())->toBe([$first->id, $second->id])
         ->and($rows->pluck('id'))->not->toContain($inactive->id);
+});
+
+test('deleting a vibe cascades vibe_vibe_categories pivot rows', function () {
+    $user = User::factory()->create();
+    $vibe = Vibe::factory()->for($user)->create();
+    $category = makeVibeCategory(['slug' => 'cascade-cat']);
+
+    $vibe->categories()->attach($category->id);
+
+    expect(DB::table('vibe_vibe_categories')->where('vibe_id', $vibe->id)->count())->toBe(1);
+
+    $vibe->delete();
+
+    expect(DB::table('vibe_vibe_categories')->where('vibe_id', $vibe->id)->count())->toBe(0);
 });
 
 test('vibe categories relation excludes inactive categories', function () {

@@ -55,7 +55,6 @@ class PresetVibeController extends Controller
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
             'cover_bundle_id' => $validated['cover_bundle_id'] ?? null,
-            'category' => $validated['category'] ?? null,
             'tags' => $request->resolvedTags(),
             'is_active' => array_key_exists('is_active', $validated)
                 ? (bool) $validated['is_active']
@@ -72,7 +71,7 @@ class PresetVibeController extends Controller
         $validated = $request->validated();
         $payload = [];
 
-        foreach (['name', 'description', 'cover_bundle_id', 'category'] as $field) {
+        foreach (['name', 'description', 'cover_bundle_id'] as $field) {
             if (array_key_exists($field, $validated)) {
                 $payload[$field] = $validated[$field];
             }

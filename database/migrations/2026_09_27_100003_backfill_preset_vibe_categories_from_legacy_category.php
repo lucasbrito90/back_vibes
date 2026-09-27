@@ -30,9 +30,11 @@ return new class extends Migration
             return;
         }
 
-        Schema::create(self::AUDIT_TABLE, function (Blueprint $table): void {
-            $table->unsignedBigInteger('vibe_category_id')->primary();
-        });
+        if (! Schema::hasTable(self::AUDIT_TABLE)) {
+            Schema::create(self::AUDIT_TABLE, function (Blueprint $table): void {
+                $table->unsignedBigInteger('vibe_category_id')->primary();
+            });
+        }
 
         $presets = DB::table('preset_vibes')
             ->select(['id', 'category'])

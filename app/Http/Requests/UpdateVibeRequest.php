@@ -23,6 +23,8 @@ class UpdateVibeRequest extends FormRequest
             'description' => ['nullable', 'string'],
             'is_active' => ['sometimes', 'boolean'],
             'scene_id' => ['sometimes', 'nullable', 'integer', Rule::exists('scenes', 'id')],
+            'categories' => ['prohibited'],
+            'category_ids' => ['prohibited'],
         ];
     }
 

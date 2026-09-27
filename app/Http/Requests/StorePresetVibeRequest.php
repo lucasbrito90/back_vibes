@@ -22,7 +22,7 @@ class StorePresetVibeRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'cover_bundle_id' => ['nullable', 'integer', 'exists:cover_bundles,id'],
-            'category' => ['nullable', 'string', 'max:100'],
+            'category' => ['prohibited'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:50'],
             'is_active' => ['sometimes', 'boolean'],

@@ -87,6 +87,35 @@ test('import copies only active preset categories and preset changes do not muta
     expect($vibe->fresh()->categories()->pluck('vibe_categories.id')->all())->toBe([$active->id]);
 });
 
+test('post and patch vibes reject category_ids with 422 and do not create pivots', function () {
+    $user = User::factory()->create(['firebase_uid' => 'fb-vc-prohibited']);
+    $cat = VibeCategory::query()->create([
+        'slug' => 'blocked',
+        'names' => ['en' => 'Blocked'],
+        'sort_order' => 0,
+        'is_active' => true,
+    ]);
+
+    $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->times(2)->with('tok')->andReturn(jwtForCategoryImportUser($user));
+
+    $this->postJson('/api/vibes', [
+        'name' => 'No cats',
+        'category_ids' => [$cat->id],
+    ], ['Authorization' => 'Bearer tok'])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['category_ids']);
+
+    $vibe = Vibe::factory()->for($user)->create(['name' => 'Existing']);
+
+    $this->patchJson("/api/vibes/{$vibe->id}", [
+        'category_ids' => [$cat->id],
+    ], ['Authorization' => 'Bearer tok'])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['category_ids']);
+
+    expect(DB::table('vibe_vibe_categories')->where('vibe_id', $vibe->id)->count())->toBe(0);
+});
+
 test('manual vibe create has empty categories and no pivot rows', function () {
     $user = User::factory()->create(['firebase_uid' => 'fb-vc-manual-empty']);
 
