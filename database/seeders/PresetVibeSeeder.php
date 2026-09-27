@@ -8,7 +8,10 @@ use App\Models\CoverBundle;
 use App\Models\PresetVibe;
 use App\Models\PresetVibeSound;
 use App\Models\Sound;
+use App\Models\VibeCategory;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class PresetVibeSeeder extends Seeder
 {
@@ -21,9 +24,9 @@ class PresetVibeSeeder extends Seeder
         $bundleId = CoverBundle::query()->orderBy('id')->value('id');
 
         $definitions = [
-            ['name' => 'Demo Rain Focus', 'category' => 'Weather', 'sound_names' => ['Rain', 'Thunder']],
-            ['name' => 'Demo Forest Walk', 'category' => 'Nature', 'sound_names' => ['Birds', 'Wind']],
-            ['name' => 'Demo Ocean Calm', 'category' => 'Ambient', 'sound_names' => ['Ocean Waves']],
+            ['name' => 'Demo Rain Focus', 'category_label' => 'Weather', 'sound_names' => ['Rain', 'Thunder']],
+            ['name' => 'Demo Forest Walk', 'category_label' => 'Nature', 'sound_names' => ['Birds', 'Wind']],
+            ['name' => 'Demo Ocean Calm', 'category_label' => 'Ambient', 'sound_names' => ['Ocean Waves']],
         ];
 
         foreach ($definitions as $index => $def) {
@@ -48,9 +51,25 @@ class PresetVibeSeeder extends Seeder
                 'name' => $def['name'],
                 'description' => 'Demo preset seeded for local development.',
                 'cover_bundle_id' => $index === 0 ? $bundleId : null,
-                'category' => $def['category'],
                 'tags' => ['demo', 'seed'],
                 'is_active' => true,
+            ]);
+
+            $label = $def['category_label'];
+            $slug = Str::slug($label) ?: 'category';
+            $category = VibeCategory::query()->firstOrCreate(
+                ['slug' => $slug],
+                [
+                    'names' => ['en' => $label],
+                    'sort_order' => 0,
+                    'is_active' => true,
+                ],
+            );
+            DB::table('preset_vibe_vibe_categories')->insertOrIgnore([
+                'preset_vibe_id' => $preset->id,
+                'vibe_category_id' => $category->id,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
 
             foreach ($soundIds as $sortOrder => $soundId) {

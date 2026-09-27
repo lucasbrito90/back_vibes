@@ -23,7 +23,7 @@ class PresetVibeController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $query = PresetVibe::query()
-            ->with(['coverBundle', 'presetVibeSounds.sound'])
+            ->with(['coverBundle', 'presetVibeSounds.sound', 'categories'])
             ->orderBy('name');
 
         $includeInactive = $request->boolean('include_inactive')
@@ -42,7 +42,7 @@ class PresetVibeController extends Controller
             abort(404);
         }
 
-        $presetVibe->load(['coverBundle', 'presetVibeSounds.sound']);
+        $presetVibe->load(['coverBundle', 'presetVibeSounds.sound', 'categories']);
 
         return new PresetVibeResource($presetVibe);
     }
@@ -55,7 +55,6 @@ class PresetVibeController extends Controller
             'name' => $validated['name'],
             'description' => $validated['description'] ?? null,
             'cover_bundle_id' => $validated['cover_bundle_id'] ?? null,
-            'category' => $validated['category'] ?? null,
             'tags' => $request->resolvedTags(),
             'is_active' => array_key_exists('is_active', $validated)
                 ? (bool) $validated['is_active']
@@ -72,7 +71,7 @@ class PresetVibeController extends Controller
         $validated = $request->validated();
         $payload = [];
 
-        foreach (['name', 'description', 'cover_bundle_id', 'category'] as $field) {
+        foreach (['name', 'description', 'cover_bundle_id'] as $field) {
             if (array_key_exists($field, $validated)) {
                 $payload[$field] = $validated[$field];
             }
@@ -103,7 +102,7 @@ class PresetVibeController extends Controller
             abort(404);
         }
 
-        $presetVibe->loadMissing(['coverBundle', 'presetVibeSounds']);
+        $presetVibe->loadMissing(['coverBundle', 'presetVibeSounds', 'categories']);
 
         $userId = (int) $request->user()->id;
 
@@ -150,10 +149,15 @@ class PresetVibeController extends Controller
                 ]);
             }
 
+            $activeCategoryIds = $presetVibe->categories->pluck('id')->all();
+            if ($activeCategoryIds !== []) {
+                $vibe->categories()->attach($activeCategoryIds);
+            }
+
             return $vibe;
         });
 
-        $vibe->load(['sounds']);
+        $vibe->load(['sounds', 'categories']);
         $vibe->loadCount('sounds');
 
         return (new VibeResource($vibe))->response()->setStatusCode(201);

@@ -14,7 +14,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'name',
     'description',
     'cover_bundle_id',
-    'category',
     'tags',
     'is_active',
 ])]
@@ -34,6 +33,15 @@ final class PresetVibe extends Model
     public function coverBundle(): BelongsTo
     {
         return $this->belongsTo(CoverBundle::class);
+    }
+
+    /** @return BelongsToMany<VibeCategory, $this> */
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(VibeCategory::class, 'preset_vibe_vibe_categories')
+            ->where('vibe_categories.is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('vibe_categories.id');
     }
 
     /** Sound layers — eager-load `sound` for catalog metadata. */

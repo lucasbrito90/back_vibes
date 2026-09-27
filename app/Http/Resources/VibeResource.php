@@ -27,6 +27,7 @@ class VibeResource extends JsonResource
             'is_active' => $this->is_active,
             'scene_id' => $this->scene_id,
             'sounds_count' => (int) ($this->sounds_count ?? 0),
+            'categories' => VibeCategoryResource::collection($this->whenLoaded('categories')),
             'sounds' => VibeSoundResource::collection($this->whenLoaded('sounds')),
             'active_schedules_count' => (int) ($this->active_schedules_count ?? 0),
             'has_active_schedule' => (bool) ($this->active_schedules_count ?? 0),

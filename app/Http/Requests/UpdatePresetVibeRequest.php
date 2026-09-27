@@ -22,7 +22,7 @@ class UpdatePresetVibeRequest extends FormRequest
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],
             'cover_bundle_id' => ['sometimes', 'nullable', 'integer', 'exists:cover_bundles,id'],
-            'category' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'category' => ['prohibited'],
             'tags' => ['sometimes', 'nullable', 'array'],
             'tags.*' => ['string', 'max:50'],
             'is_active' => ['sometimes', 'boolean'],
