@@ -29,9 +29,9 @@ class PresetVibeResource extends JsonResource
                     ? new CoverBundleResource($preset->coverBundle)
                     : null,
             ),
-            'category' => $preset->category,
             'tags' => $preset->tags ?? [],
             'is_active' => (bool) ($preset->is_active ?? true),
+            'categories' => VibeCategoryResource::collection($this->whenLoaded('categories')),
             'sounds' => PresetVibeSoundResource::collection($this->whenLoaded('presetVibeSounds')),
             'created_at' => $preset->created_at?->toISOString(),
             'updated_at' => $preset->updated_at?->toISOString(),

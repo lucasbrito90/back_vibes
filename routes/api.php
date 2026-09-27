@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\SceneExecutionController;
 use App\Http\Controllers\Api\ScheduleController;
 use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
+use App\Http\Controllers\Api\VibeCategoryController;
 use App\Http\Controllers\Api\VibeController;
 use App\Http\Controllers\Api\VibeSmartHomeDispatchController;
 use App\Http\Controllers\Api\VibeSoundController;
@@ -66,6 +67,9 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::get('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'show']);
     Route::post('preset-vibes/{preset_vibe}/import', [PresetVibeController::class, 'import']);
 
+    Route::get('vibe-categories', [VibeCategoryController::class, 'index']);
+    Route::get('vibe-categories/{vibe_category}', [VibeCategoryController::class, 'show']);
+
     Route::middleware('admin.approved')->group(function () {
         Route::post('admin/sounds', [SoundController::class, 'store']);
         Route::post('sounds', [SoundController::class, 'store']);
@@ -83,6 +87,12 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
         Route::put('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'update']);
         Route::delete('preset-vibes/{preset_vibe}', [PresetVibeController::class, 'destroy']);
         Route::put('preset-vibes/{preset_vibe}/sounds', [PresetVibeController::class, 'syncSounds']);
+        Route::put('preset-vibes/{preset_vibe}/categories', [VibeCategoryController::class, 'syncPresetCategories']);
+
+        Route::post('vibe-categories', [VibeCategoryController::class, 'store']);
+        Route::patch('vibe-categories/{vibe_category}', [VibeCategoryController::class, 'update']);
+        Route::put('vibe-categories/{vibe_category}', [VibeCategoryController::class, 'update']);
+        Route::delete('vibe-categories/{vibe_category}', [VibeCategoryController::class, 'destroy']);
 
         Route::post('admin/uploads', [UploadAssetController::class, 'store']);
     });
