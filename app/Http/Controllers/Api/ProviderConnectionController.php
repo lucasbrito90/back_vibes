@@ -10,6 +10,7 @@ use App\Http\Requests\SyncReportedDevicesRequest;
 use App\Http\Requests\UpdateProviderConnectionRequest;
 use App\Http\Resources\ProviderConnectionResource;
 use App\Models\ProviderConnection;
+use App\SmartHome\ConnectionStatus;
 use App\SmartHome\Exceptions\ProviderConnectionException;
 use App\SmartHome\Services\ProviderDeviceSyncService;
 use App\SmartHome\Services\ReportedDeviceSyncService;
@@ -46,6 +47,12 @@ class ProviderConnectionController extends Controller
         ]);
 
         $connection->user_id = $request->user()->id;
+        // The `status` column defaults to 'unknown' at the database level (migration
+        // 2026_06_14_000001), but Eloquent does not read DB-level column defaults back into
+        // the in-memory model after an insert — only an explicit re-fetch would. Setting it
+        // here keeps the response the client gets from this request accurate without a
+        // reload, instead of serializing a null the column itself will never actually hold.
+        $connection->status = ConnectionStatus::Unknown->value;
 
         // ADR-036 Decision 4: a provider without server_side_execution has no
         // credential for the server to hold — a placeholder value must not be
