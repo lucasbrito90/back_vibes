@@ -67,6 +67,26 @@ test('authenticated user can list only their own scenes', function () {
         ->and($response->json('data.0.name'))->toBe('Alice Evening');
 });
 
+test('scene list and detail responses include actions_count', function () {
+    $user = User::factory()->create(['firebase_uid' => 'fb-scene-actions-count']);
+    $scene = createSceneForUser($user, ['name' => 'Movie Night']);
+    SceneAction::factory()->count(3)->create(['scene_id' => $scene->id]);
+
+    $emptyScene = createSceneForUser($user, ['name' => 'Empty Scene']);
+
+    sceneApiAuth($user);
+
+    $listResponse = $this->getJson('/api/scenes', sceneApiHeaders());
+    $listResponse->assertOk();
+    $byId = collect($listResponse->json('data'))->keyBy('id');
+    expect($byId[$scene->id]['actions_count'])->toBe(3)
+        ->and($byId[$emptyScene->id]['actions_count'])->toBe(0);
+
+    $this->getJson("/api/scenes/{$scene->id}", sceneApiHeaders())
+        ->assertOk()
+        ->assertJsonPath('data.actions_count', 3);
+});
+
 test('user cannot show another users scene', function () {
     $alice = User::factory()->create(['firebase_uid' => 'fb-scene-show-alice']);
     $bob = User::factory()->create(['firebase_uid' => 'fb-scene-show-bob']);
@@ -91,7 +111,8 @@ test('user can create a scene with valid payload', function () {
 
     $response->assertCreated()
         ->assertJsonPath('data.name', 'Movie Night')
-        ->assertJsonPath('data.description', 'Dim lights');
+        ->assertJsonPath('data.description', 'Dim lights')
+        ->assertJsonPath('data.actions_count', 0);
 
     $scene = Scene::query()->findOrFail((int) $response->json('data.id'));
     expect($scene->user_id)->toBe($user->id);
@@ -134,6 +155,7 @@ test('user can show own scene', function () {
                 'id',
                 'name',
                 'description',
+                'actions_count',
                 'created_at',
                 'updated_at',
             ],

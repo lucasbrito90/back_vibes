@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int $user_id
  * @property string $name
  * @property string|null $description
+ * @property-read int $actions_count
  * @property Carbon $created_at
  * @property Carbon $updated_at
  */
