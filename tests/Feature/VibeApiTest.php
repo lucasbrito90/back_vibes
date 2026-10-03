@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Models\CoverBundle;
 use App\Models\Sound;
 use App\Models\User;
 use App\Models\Vibe;
@@ -300,4 +301,92 @@ test('visual URL fields are not mass-assigned from vibe update payload', functio
     expect($fresh->name)->toBe('Renamed')
         ->and($fresh->thumbnail_url)->toBe('https://cdn.example/original.jpg')
         ->and($fresh->artwork_url)->toBeNull();
+});
+
+test('user can apply an active cover bundle to their own vibe', function () {
+    $user = User::factory()->create(['firebase_uid' => 'fb-vibe-cover-apply']);
+    $vibe = createVibeForUser($user);
+    $bundle = CoverBundle::query()->create([
+        'name' => 'Dew',
+        'thumbnail_url' => 'https://cdn.example/dew-thumb.jpg',
+        'artwork_url' => 'https://cdn.example/dew-art.jpg',
+        'player_background_url' => 'https://cdn.example/dew-bg.jpg',
+        'category' => 'Nature',
+        'is_active' => true,
+    ]);
+
+    vibeApiAuth($user);
+
+    $this->postJson("/api/vibes/{$vibe->id}/cover", [
+        'cover_bundle_id' => $bundle->id,
+    ], [
+        'Authorization' => 'Bearer tok',
+    ])
+        ->assertOk()
+        ->assertJsonPath('data.thumbnail_url', 'https://cdn.example/dew-thumb.jpg')
+        ->assertJsonPath('data.artwork_url', 'https://cdn.example/dew-art.jpg')
+        ->assertJsonPath('data.player_background_url', 'https://cdn.example/dew-bg.jpg');
+
+    $fresh = $vibe->fresh();
+    expect($fresh->thumbnail_url)->toBe('https://cdn.example/dew-thumb.jpg')
+        ->and($fresh->artwork_url)->toBe('https://cdn.example/dew-art.jpg')
+        ->and($fresh->player_background_url)->toBe('https://cdn.example/dew-bg.jpg');
+});
+
+test('user cannot apply a cover bundle to another users vibe', function () {
+    $alice = User::factory()->create(['firebase_uid' => 'fb-vibe-cover-alice']);
+    $bob = User::factory()->create(['firebase_uid' => 'fb-vibe-cover-bob']);
+    $bobVibe = createVibeForUser($bob);
+    $bundle = CoverBundle::query()->create([
+        'name' => 'Dawn',
+        'thumbnail_url' => 'https://cdn.example/dawn.jpg',
+        'is_active' => true,
+    ]);
+
+    vibeApiAuth($alice);
+
+    $this->postJson("/api/vibes/{$bobVibe->id}/cover", [
+        'cover_bundle_id' => $bundle->id,
+    ], [
+        'Authorization' => 'Bearer tok',
+    ])->assertForbidden();
+
+    expect($bobVibe->fresh()->thumbnail_url)->toBeNull();
+});
+
+test('applying a cover bundle requires a valid cover_bundle_id', function () {
+    $user = User::factory()->create(['firebase_uid' => 'fb-vibe-cover-invalid']);
+    $vibe = createVibeForUser($user);
+
+    vibeApiAuth($user);
+
+    $this->postJson("/api/vibes/{$vibe->id}/cover", [
+        'cover_bundle_id' => 999999,
+    ], [
+        'Authorization' => 'Bearer tok',
+    ])->assertUnprocessable()->assertJsonValidationErrors(['cover_bundle_id']);
+
+    $this->postJson("/api/vibes/{$vibe->id}/cover", [], [
+        'Authorization' => 'Bearer tok',
+    ])->assertUnprocessable()->assertJsonValidationErrors(['cover_bundle_id']);
+});
+
+test('applying an inactive cover bundle is not found for a regular user', function () {
+    $user = User::factory()->create(['firebase_uid' => 'fb-vibe-cover-inactive']);
+    $vibe = createVibeForUser($user);
+    $bundle = CoverBundle::query()->create([
+        'name' => 'Retired',
+        'thumbnail_url' => 'https://cdn.example/retired.jpg',
+        'is_active' => false,
+    ]);
+
+    vibeApiAuth($user);
+
+    $this->postJson("/api/vibes/{$vibe->id}/cover", [
+        'cover_bundle_id' => $bundle->id,
+    ], [
+        'Authorization' => 'Bearer tok',
+    ])->assertNotFound();
+
+    expect($vibe->fresh()->thumbnail_url)->toBeNull();
 });
