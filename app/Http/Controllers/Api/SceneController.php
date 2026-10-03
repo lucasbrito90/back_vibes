@@ -23,6 +23,7 @@ class SceneController extends Controller
         $this->authorize('viewAny', Scene::class);
 
         $scenes = Scene::where('user_id', $request->user()->id)
+            ->withCount('actions')
             ->latest()
             ->get();
 
@@ -37,6 +38,8 @@ class SceneController extends Controller
             ...$request->validated(),
             'user_id' => $request->user()->id,
         ]);
+
+        $scene->loadCount('actions');
 
         return new SceneResource($scene);
     }
@@ -74,6 +77,8 @@ class SceneController extends Controller
 
     private function findOwnedScene(Request $request, int $sceneId): Scene
     {
-        return Scene::where('user_id', $request->user()->id)->findOrFail($sceneId);
+        return Scene::where('user_id', $request->user()->id)
+            ->withCount('actions')
+            ->findOrFail($sceneId);
     }
 }
