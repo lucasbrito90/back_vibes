@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\ScheduleExecutionController;
 use App\Http\Controllers\Api\SoundController;
 use App\Http\Controllers\Api\VibeCategoryController;
 use App\Http\Controllers\Api\VibeController;
+use App\Http\Controllers\Api\VibeCoverController;
 use App\Http\Controllers\Api\VibeSmartHomeDispatchController;
 use App\Http\Controllers\Api\VibeSoundController;
 use Illuminate\Support\Facades\App;
@@ -124,6 +125,7 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
         Route::delete('sounds/{sound}', [VibeSoundController::class, 'destroy']);
 
         Route::post('smart-home/dispatch', VibeSmartHomeDispatchController::class);
+        Route::post('cover', VibeCoverController::class);
     });
 });
 
