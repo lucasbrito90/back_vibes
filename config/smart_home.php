@@ -23,6 +23,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Device State Freshness (DEV-01, ADR-037 §6)
+    |--------------------------------------------------------------------------
+    |
+    | How long a persisted DeviceState counts as current. Within the TTL the
+    | device detail endpoint reports the stored value and contacts no provider;
+    | past it, the next detail read refreshes from the provider once.
+    |
+    | ADR-037 §6 deliberately sets no number here ("a thermostat's temperature
+    | ages differently from a lamp's on/off"), so this is a policy knob, not a
+    | contract value. Raising it reduces provider load and increases the chance
+    | of presenting an aged value as fresh; lowering it does the reverse. A
+    | value of 0 makes every detail read refresh.
+    |
+    */
+
+    'device_state' => [
+        'ttl_seconds' => (int) env('SMART_HOME_DEVICE_STATE_TTL', 60),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Known Providers (ADR-036 Decision 3)
     |--------------------------------------------------------------------------
     |
