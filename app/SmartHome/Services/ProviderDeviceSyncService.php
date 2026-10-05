@@ -149,7 +149,8 @@ final class ProviderDeviceSyncService
     private function markConnectionConnected(ProviderConnection $connection): void
     {
         $connection->status = ConnectionStatus::Connected->value;
-        $connection->last_tested_at = now();
+        // PRV-02: sync sets last_synced_at; explicit /test calls set last_tested_at.
+        $connection->last_synced_at = now();
         $connection->save();
     }
 
