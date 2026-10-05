@@ -5,13 +5,15 @@ declare(strict_types=1);
 namespace App\SmartHome;
 
 /**
- * Provider slugs for Smart Home integrations.
+ * Typed aliases for known provider slugs (ADR-045 Decision 1).
  *
- * MVP ships: home_assistant only.
- * Future provider slugs are reserved here to document the expected values
- * and to avoid hardcoding strings across the codebase.
+ * This enum is a type-safe alias layer only — it is NOT the identity source.
+ * The canonical source of provider identity is config('smart_home.known_providers')
+ * read via ProviderDescriptorRegistry. Cases here must stay aligned with that
+ * config; adding a case does NOT register a provider.
  *
- * When a new provider ships, add its case and update mvpAllowed() if applicable.
+ * Reserved cases document future slugs to prevent string drift; a follow-up
+ * ADR is required before any reserved provider ships.
  */
 enum ProviderType: string
 {
@@ -31,15 +33,4 @@ enum ProviderType: string
 
     /** Reserved — future provider. */
     case Matter = 'matter';
-
-    /** Returns the MVP-allowed provider slugs (home_assistant only). */
-    public static function mvpAllowed(): array
-    {
-        return [self::HomeAssistant];
-    }
-
-    public function isMvpSupported(): bool
-    {
-        return $this === self::HomeAssistant;
-    }
 }

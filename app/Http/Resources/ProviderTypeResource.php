@@ -26,6 +26,11 @@ class ProviderTypeResource extends JsonResource
             'label' => $this->label,
             'config' => $this->schemaToArray($this->config),
             'credentials' => $this->schemaToArray($this->credentials),
+            // ADR-045 Decision 2 — closed vocabulary of connection methods.
+            'connection_methods' => array_map(
+                fn ($method) => $method->value,
+                $this->connectionMethods,
+            ),
             // ADR-036 Decision 2 — provider-level execution capabilities.
             // A genuine list (order-independent set of strings), unlike
             // config/credentials above, so it always serializes as a JSON

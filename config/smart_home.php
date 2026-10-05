@@ -1,6 +1,7 @@
 <?php
 
 use App\SmartHome\Adapters\HomeAssistantAdapter;
+use App\SmartHome\ProviderConnectionMethod;
 use App\SmartHome\ProviderExecutionCapability;
 
 return [
@@ -92,6 +93,13 @@ return [
                     'required' => true,
                 ],
             ],
+            // ADR-045 Decision 2 — url_token: user supplies a base URL
+            // and a long-lived access token. Credentials are stored
+            // server-side (ADR-045 Decision 4); execution is server-side
+            // (ADR-045 Decision 6).
+            'connection_methods' => [
+                ProviderConnectionMethod::UrlToken->value,
+            ],
             // Home Assistant is the server-side/scheduled provider — it
             // declares the full vocabulary except automation_delegation
             // (reserved, unused in v1.6.0).
@@ -113,6 +121,13 @@ return [
             'label' => 'Google Home',
             'config' => [],
             'credentials' => [],
+            // ADR-045 Decision 2 — device_sdk: the mobile client uses the
+            // Google Home SDK directly. No backend credential custody
+            // (ADR-045 Decision 4); execution is device-side
+            // (ADR-045 Decision 6, ADR-036 Decision 3/4).
+            'connection_methods' => [
+                ProviderConnectionMethod::DeviceSdk->value,
+            ],
             // Device-side only (ADR-036 §1-3): the Home APIs have no
             // server-reachable surface, so neither server_side_execution
             // nor scheduled_execution is declared.

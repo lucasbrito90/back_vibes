@@ -75,6 +75,7 @@ function registerFakeProviderForHttpCycle(): FakeProviderAdapter
                     'required' => true,
                 ],
             ],
+            'connection_methods' => ['url_token'],
             'execution_capabilities' => [
                 'device_discovery',
                 'state_read',
