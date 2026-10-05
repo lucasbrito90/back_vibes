@@ -229,17 +229,17 @@ test('read-only current_temperature capability has access read and empty operati
     $user = bffUser('fb-bff-readonly-cap');
     $conn = bffGhConnection($user);
 
-    $mapper = new HomeAssistantCanonicalMapper;
-    // A thermostat has current_temperature (read-only) among its capabilities.
-    $capabilities = $mapper->toStoredPayload(
-        $mapper->capabilitiesFor('climate', ['supported_features' => 3], true),
-    );
+    $tempCap = Capability::fromCatalog(CapabilityId::CurrentTemperature);
+    $storedCapabilities = (new CanonicalCapabilitiesDocument(
+        ContractVersion::CURRENT,
+        ['current_temperature' => $tempCap],
+    ))->toArray();
 
     $device = Device::factory()->create([
         'user_id' => $user->id,
         'provider_connection_id' => $conn->id,
         'provider' => $conn->provider,
-        'capabilities' => $capabilities,
+        'capabilities' => $storedCapabilities,
         'state' => null,
         'state_read_at' => null,
     ]);
@@ -250,15 +250,9 @@ test('read-only current_temperature capability has access read and empty operati
         ->getJson("/api/devices/{$device->id}")
         ->json('data.capabilities');
 
-    if (isset($caps['current_temperature'])) {
-        expect($caps['current_temperature']['access'])->toBe('read')
-            ->and($caps['current_temperature']['operations'])->toBe([]);
-    }
-
-    // power is never read-only
-    if (isset($caps['power'])) {
-        expect($caps['power']['access'])->not->toBe('read');
-    }
+    expect($caps)->toHaveKey('current_temperature');
+    expect($caps['current_temperature']['access'])->toBe('read');
+    expect($caps['current_temperature']['operations'])->toBe([]);
 });
 
 test('energy capability is read-only with no operations', function () {
