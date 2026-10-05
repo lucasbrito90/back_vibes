@@ -128,15 +128,14 @@ test('user can create provider connection', function () {
     expect($response->json('data.name'))->toBe('My Home HA')
         ->and($response->json('data.provider'))->toBe(ProviderType::HomeAssistant->value)
         ->and($response->json('data.config.base_url'))->toBe('https://ha.example.test')
-        // Regression: `status` defaults to 'unknown' at the DB level (migration
-        // 2026_06_14_000001), but Eloquent does not read that default back into the
-        // in-memory model after an insert, so the create response previously serialized
-        // `status: null` unless the controller set it explicitly before returning.
-        ->and($response->json('data.status'))->toBe(ConnectionStatus::Unknown->value);
+        // PRV-02 (ADR-045 Decision 5): a newly-created connection begins in 'pending'
+        // state — it has been registered but never tested. The controller sets this
+        // explicitly; the DB column still defaults to 'unknown' for legacy rows.
+        ->and($response->json('data.status'))->toBe(ConnectionStatus::Pending->value);
 
     $this->assertDatabaseHas('provider_connections', [
         'id' => $response->json('data.id'),
-        'status' => ConnectionStatus::Unknown->value,
+        'status' => ConnectionStatus::Pending->value,
     ]);
 });
 

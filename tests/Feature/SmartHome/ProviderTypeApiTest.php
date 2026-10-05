@@ -61,6 +61,7 @@ test('authenticated user can list registered provider types', function () {
                     'label',
                     'config',
                     'credentials',
+                    'connection_methods',
                     'execution_capabilities',
                 ],
             ],

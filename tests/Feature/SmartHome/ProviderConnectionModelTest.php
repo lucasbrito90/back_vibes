@@ -31,6 +31,7 @@ test('provider_connections table has all required columns', function () {
         ->toContain('encrypted_credentials')
         ->toContain('status')
         ->toContain('last_tested_at')
+        ->toContain('last_synced_at')
         ->toContain('created_at')
         ->toContain('updated_at');
 });
@@ -243,47 +244,48 @@ test('devices relationship is a HasMany relationship object', function () {
 // ProviderType enum
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('ProviderType mvpAllowed returns only home_assistant', function () {
-    $allowed = ProviderType::mvpAllowed();
+/**
+ * ADR-045 Decision 1 — ProviderType is a typed-alias layer only; the
+ * canonical identity source is config('smart_home.known_providers') via
+ * ProviderDescriptorRegistry. Active provider cases must match known_providers.
+ */
+test('ProviderType active cases align with known_providers config', function () {
+    /** @var list<string> $knownSlugs */
+    $knownSlugs = config('smart_home.known_providers', []);
 
-    expect($allowed)->toHaveCount(1)
-        ->and($allowed[0])->toBe(ProviderType::HomeAssistant)
-        ->and($allowed[0]->value)->toBe('home_assistant');
+    expect($knownSlugs)->toContain(ProviderType::HomeAssistant->value)
+        ->and($knownSlugs)->toContain(ProviderType::GoogleHome->value);
 });
 
-test('ProviderType home_assistant isMvpSupported returns true', function () {
-    expect(ProviderType::HomeAssistant->isMvpSupported())->toBeTrue();
-});
+test('ProviderType reserved cases are absent from known_providers config', function () {
+    /** @var list<string> $knownSlugs */
+    $knownSlugs = config('smart_home.known_providers', []);
 
-test('ProviderType reserved slugs are not in mvpAllowed', function () {
-    $allowed = ProviderType::mvpAllowed();
-
-    expect($allowed)->not->toContain(ProviderType::Tuya)
-        ->and($allowed)->not->toContain(ProviderType::PhilipsHue)
-        ->and($allowed)->not->toContain(ProviderType::Alexa)
-        ->and($allowed)->not->toContain(ProviderType::GoogleHome)
-        ->and($allowed)->not->toContain(ProviderType::Matter);
-});
-
-test('ProviderType reserved slugs are not MVP supported', function () {
-    expect(ProviderType::Tuya->isMvpSupported())->toBeFalse()
-        ->and(ProviderType::PhilipsHue->isMvpSupported())->toBeFalse()
-        ->and(ProviderType::Alexa->isMvpSupported())->toBeFalse()
-        ->and(ProviderType::GoogleHome->isMvpSupported())->toBeFalse()
-        ->and(ProviderType::Matter->isMvpSupported())->toBeFalse();
+    expect($knownSlugs)->not->toContain(ProviderType::Tuya->value)
+        ->and($knownSlugs)->not->toContain(ProviderType::PhilipsHue->value)
+        ->and($knownSlugs)->not->toContain(ProviderType::Alexa->value)
+        ->and($knownSlugs)->not->toContain(ProviderType::Matter->value);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ConnectionStatus enum
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('ConnectionStatus values returns all three status strings', function () {
+test('ConnectionStatus values returns all status strings including PRV-02 additions', function () {
     $values = ConnectionStatus::values();
 
+    // Legacy values (kept for backward compat with existing data and mobile clients)
     expect($values)->toContain('connected')
         ->toContain('unreachable')
-        ->toContain('unknown')
-        ->toHaveCount(3);
+        ->toContain('unknown');
+
+    // PRV-02 additions (ADR-045 Decision 5)
+    expect($values)->toContain('pending')
+        ->toContain('connecting')
+        ->toContain('unreachable_host')
+        ->toContain('unreachable_credentials')
+        ->toContain('revoked')
+        ->toHaveCount(8);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Crypt;
  * @property string|null $encrypted_credentials
  * @property string $status
  * @property Carbon|null $last_tested_at
+ * @property Carbon|null $last_synced_at
  * @property Carbon $created_at
  * @property Carbon $updated_at
  */
@@ -44,6 +45,7 @@ final class ProviderConnection extends Model
         'encrypted_credentials',
         'status',
         'last_tested_at',
+        'last_synced_at',
     ];
 
     protected function casts(): array
@@ -51,6 +53,7 @@ final class ProviderConnection extends Model
         return [
             'config' => 'array',
             'last_tested_at' => 'datetime',
+            'last_synced_at' => 'datetime',
         ];
     }
 
@@ -104,6 +107,11 @@ final class ProviderConnection extends Model
     public function devices(): HasMany
     {
         return $this->hasMany(Device::class);
+    }
+
+    public function attempts(): HasMany
+    {
+        return $this->hasMany(ProviderConnectionAttempt::class);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
