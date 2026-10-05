@@ -88,6 +88,7 @@ test('descriptor registry rejects a provider descriptor declaring an unknown exe
             'label' => 'Broken Provider',
             'config' => [],
             'credentials' => [],
+            'connection_methods' => ['url_token'],
             'execution_capabilities' => ['not_a_real_capability'],
         ],
     ]);
