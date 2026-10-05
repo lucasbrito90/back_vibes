@@ -10,12 +10,6 @@ namespace App\SmartHome\Canonical;
  */
 final class LegacyCapabilitiesReader
 {
-    private const LEGACY_POWER_KEYS = [
-        'can_turn_on' => OperationId::On,
-        'can_turn_off' => OperationId::Off,
-        'can_toggle' => OperationId::Toggle,
-    ];
-
     /**
      * @param  array<string, mixed>|null  $stored  Raw JSON from devices.capabilities or an envelope
      */
@@ -51,26 +45,26 @@ final class LegacyCapabilitiesReader
     }
 
     /**
+     * Delegates to the reader that owns the legacy shape, rather than
+     * reconstructing it a second time.
+     *
+     * This method previously called `CapabilityCatalog::definition()`, which
+     * does not exist — it would have thrown an Error on every legacy row. It
+     * never did, because nothing called this class until DEV-01 needed to read
+     * stored state back; the defect sat in a dead branch. Delegating also fixes
+     * a semantic bug the broken version carried: it granted `power` the full
+     * catalog operation set whatever the row declared, where
+     * LegacyCapabilityMapReader derives only the operations whose `can_*` keys
+     * are actually present.
+     *
      * @param  array<string, mixed>  $legacy
      */
     private function fromLegacyMap(array $legacy): CanonicalCapabilitiesDocument
     {
         $capabilities = [];
 
-        $hasPowerLegacy = false;
-        foreach (array_keys(self::LEGACY_POWER_KEYS) as $legacyKey) {
-            if (array_key_exists($legacyKey, $legacy)) {
-                $hasPowerLegacy = true;
-                break;
-            }
-        }
-
-        if ($hasPowerLegacy) {
-            $capabilities[CapabilityId::Power->value] = CapabilityCatalog::definition(CapabilityId::Power);
-        }
-
-        if (array_key_exists('can_set_brightness', $legacy)) {
-            $capabilities[CapabilityId::Brightness->value] = CapabilityCatalog::definition(CapabilityId::Brightness);
+        foreach (LegacyCapabilityMapReader::read($legacy) as $capability) {
+            $capabilities[$capability->id->value] = $capability;
         }
 
         return new CanonicalCapabilitiesDocument(ContractVersion::CURRENT, $capabilities);

@@ -454,7 +454,7 @@ function legacyDeviceResourceKeys(): array
     ];
 }
 
-test('DeviceResource contract preserves all legacy fields with same names and types and adds capabilities', function () {
+test('DeviceResource contract preserves all legacy fields with same names and types and adds capabilities and state', function () {
     $user = devUser('fb-dev-res-contract');
     $conn = connectionFor($user);
     $capabilities = [
@@ -475,9 +475,13 @@ test('DeviceResource contract preserves all legacy fields with same names and ty
 
     $payload = DeviceResource::make($device->fresh())->resolve();
 
+    // `state` is DEV-01's addition: the canonical functional state (ADR-037 §6),
+    // nested under the Device rather than on an endpoint of its own so there is
+    // one read contract for state. Additive — no legacy key changes name or type.
     expect(array_keys($payload))->toEqual([
         ...legacyDeviceResourceKeys(),
         'capabilities',
+        'state',
     ]);
 
     expect($payload['id'])->toBeInt()

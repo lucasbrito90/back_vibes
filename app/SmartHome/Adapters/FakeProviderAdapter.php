@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\SmartHome\Adapters;
 
 use App\Models\ProviderConnection;
+use App\SmartHome\Canonical\CapabilityId;
+use App\SmartHome\Canonical\DeviceState;
+use App\SmartHome\Canonical\LegacyCapabilitiesReader;
 use App\SmartHome\Contracts\ProviderAdapter;
 use App\SmartHome\DeviceStatus;
 use App\SmartHome\DeviceType;
@@ -160,6 +163,7 @@ final class FakeProviderAdapter implements ProviderAdapter
                     raw_state: $device->metadata['raw_state'] ?? null,
                     attributes: $device->metadata,
                     last_changed: null,
+                    state: $this->canonicalState($device),
                 );
             }
         }
@@ -230,6 +234,47 @@ final class FakeProviderAdapter implements ProviderAdapter
     }
 
     /**
+     * The device's functional state in the canonical vocabulary (ADR-037 §6).
+     *
+     * Exists so the state pipeline can be exercised provider-independently:
+     * the normalisation guarantee ("the same functional state has the same
+     * canonical shape whatever the provider") is only testable if more than one
+     * adapter produces canonical state. Before DEV-01 this fake returned
+     * `state: null`, so that property was unverifiable by construction.
+     *
+     * Unlike Home Assistant, this fake declares no native scale of its own —
+     * `metadata['brightness']` is already the canonical 0-100 percent, so there
+     * is deliberately no conversion here to mirror. A real adapter converts at
+     * its own boundary; a fake with an invented scale would only be testing the
+     * invention.
+     */
+    private function canonicalState(ProviderDevice $device): DeviceState
+    {
+        $declared = (new LegacyCapabilitiesReader)->read($device->capabilities);
+        $capabilities = $declared?->capabilities ?? [];
+
+        $values = [];
+
+        $power = match ($device->metadata['raw_state'] ?? null) {
+            'on' => true,
+            'off' => false,
+            default => null,
+        };
+
+        if ($power !== null && isset($capabilities[CapabilityId::Power->value])) {
+            $values[CapabilityId::Power->value] = $power;
+        }
+
+        $brightness = $device->metadata['brightness'] ?? null;
+
+        if (isset($capabilities[CapabilityId::Brightness->value]) && (is_int($brightness) || is_float($brightness))) {
+            $values[CapabilityId::Brightness->value] = (int) round((float) $brightness);
+        }
+
+        return DeviceState::of($values, $capabilities);
+    }
+
+    /**
      * @return list<ProviderDevice>
      */
     private function defaultDevices(): array
@@ -240,7 +285,7 @@ final class FakeProviderAdapter implements ProviderAdapter
                 name: 'Fake Living Light',
                 type: DeviceType::Lighting->value,
                 status: DeviceStatus::Online,
-                metadata: ['raw_state' => 'on'],
+                metadata: ['raw_state' => 'on', 'brightness' => 65],
                 last_seen_at: null,
                 capabilities: [
                     'can_turn_on' => [],

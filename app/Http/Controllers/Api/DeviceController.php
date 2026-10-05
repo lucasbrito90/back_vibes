@@ -11,6 +11,7 @@ use App\Http\Resources\DeviceResource;
 use App\Models\Device;
 use App\Models\ProviderConnection;
 use App\SmartHome\DeviceStatus;
+use App\SmartHome\Services\DeviceStateService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,6 +21,15 @@ class DeviceController extends Controller
 {
     use AuthorizesRequests;
 
+    /**
+     * The user's devices, each with its last-known functional state.
+     *
+     * No provider read happens here, by design (DEV-01): refreshing N devices
+     * on a list request would mean N provider calls per page load, which is the
+     * cost risk the card named. The list reports stored state with its
+     * freshness marker, so a client can tell a current value from an aged one
+     * without the backend fanning out.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $this->authorize('viewAny', Device::class);
@@ -54,9 +64,22 @@ class DeviceController extends Controller
         return (new DeviceResource($device))->response()->setStatusCode(201);
     }
 
-    public function show(Request $request, Device $device): DeviceResource
-    {
+    /**
+     * Device detail, including canonical functional state (DEV-01).
+     *
+     * Read-through: refreshes state from the provider when the stored value is
+     * absent or older than the TTL, so opening a device shows what it is
+     * actually doing. Bounded to one device and skipped entirely when a recent
+     * read is on hand. index() deliberately does NOT do this — see its note.
+     */
+    public function show(
+        Request $request,
+        Device $device,
+        DeviceStateService $stateService,
+    ): DeviceResource {
         $this->authorize('view', $device);
+
+        $stateService->refreshIfStale($device);
 
         return new DeviceResource($device);
     }

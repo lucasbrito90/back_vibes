@@ -24,6 +24,16 @@ class DeviceResource extends JsonResource
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
             'capabilities' => $this->capabilities,
+            // DEV-01: canonical functional state (ADR-037 §6), nested under the
+            // Device as card 166's model requires rather than on an endpoint of
+            // its own, so there is one read contract for state and not two.
+            //
+            // Carries values/read_at/freshness ONLY. No provider_device_id, no
+            // provider-native attributes, no SDK or entity vocabulary — those
+            // stop at the adapter (ADR-037 §1, §7). The sibling keys above that
+            // DO leak provider internals are a pre-existing boundary defect
+            // explicitly owned by card 166, untouched here.
+            'state' => $this->stateSnapshot()->toArray(),
         ];
     }
 }
