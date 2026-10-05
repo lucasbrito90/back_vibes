@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreDeviceRequest;
 use App\Http\Requests\UpdateDeviceRequest;
+use App\Http\Resources\DeviceDetailResource;
 use App\Http\Resources\DeviceResource;
 use App\Models\Device;
 use App\Models\ProviderConnection;
@@ -76,12 +77,12 @@ class DeviceController extends Controller
         Request $request,
         Device $device,
         DeviceStateService $stateService,
-    ): DeviceResource {
+    ): DeviceDetailResource {
         $this->authorize('view', $device);
 
         $stateService->refreshIfStale($device);
 
-        return new DeviceResource($device);
+        return new DeviceDetailResource($device);
     }
 
     public function update(UpdateDeviceRequest $request, Device $device): DeviceResource

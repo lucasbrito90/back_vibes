@@ -568,9 +568,10 @@ test('GET device returns normalized DeviceType for synced HA light not raw domai
 
     $response = $this->getJson("/api/devices/{$device->id}", devHeaders())->assertOk();
 
+    // BFF detail exposes the Ixora-normalised DeviceType, not the HA domain slug.
+    // metadata is not part of the BFF contract (provider boundary, card 166).
     expect($response->json('data.type'))->toBe('lighting')
         ->and($response->json('data.type'))->not->toBe('light')
-        ->and($response->json('data.metadata.domain'))->toBe('light')
         ->and(in_array($response->json('data.type'), DeviceType::values(), true))->toBeTrue();
 });
 
@@ -594,7 +595,10 @@ test('DeviceResource never exposes credentials or provider connection secrets', 
         ->and($encoded)->not->toContain($conn->getRawOriginal('encrypted_credentials'));
 });
 
-test('DeviceResource returns all expected fields', function () {
+test('GET device detail exposes the BFF contract fields', function () {
+    // The show endpoint returns DeviceDetailResource (card 166 BFF).
+    // Provider internals (provider_device_id, metadata, provider, etc.) are
+    // not part of this contract — see DeviceDetailBffTest for boundary coverage.
     $user = devUser('fb-dev-res-shape');
     $conn = connectionFor($user);
     $device = Device::factory()->create([
@@ -610,17 +614,11 @@ test('DeviceResource returns all expected fields', function () {
         ->assertJsonStructure([
             'data' => [
                 'id',
-                'provider_connection_id',
                 'name',
                 'type',
-                'provider',
-                'provider_device_id',
-                'status',
-                'last_seen_at',
-                'metadata',
-                'created_at',
-                'updated_at',
+                'connectivity',
                 'capabilities',
+                'state',
             ],
         ]);
 });
