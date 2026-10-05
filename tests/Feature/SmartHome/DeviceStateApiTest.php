@@ -477,9 +477,10 @@ test('an offline device can still carry a last-known functional state', function
         'state_read_at' => now()->subSeconds(5),
     ]);
 
+    // BFF exposes device connectivity as 'connectivity', not 'status' (card 166).
     $this->withHeaders(['Authorization' => 'Bearer tok'])
         ->getJson("/api/devices/{$device->id}")
-        ->assertJsonPath('data.status', DeviceStatus::Offline->value)
+        ->assertJsonPath('data.connectivity', DeviceStatus::Offline->value)
         ->assertJsonPath('data.state.values.power', true);
 });
 
