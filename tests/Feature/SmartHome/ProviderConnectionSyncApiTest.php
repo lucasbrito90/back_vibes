@@ -254,7 +254,7 @@ test('already-offline absent devices stay offline', function () {
 // Sync — connection status updates
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('successful sync marks connection as connected and sets last_tested_at', function () {
+test('successful sync marks connection as connected and sets last_synced_at', function () {
     $user = syncUser('fb-sync-connected');
     $conn = syncConnection($user);
 
@@ -264,8 +264,11 @@ test('successful sync marks connection as connected and sets last_tested_at', fu
     $this->postJson(syncUrl($conn), [], syncHeaders())->assertOk();
 
     $fresh = $conn->fresh();
+    // PRV-02: sync sets last_synced_at (not last_tested_at). last_tested_at is
+    // reserved for explicit /test calls.
     expect($fresh->status)->toBe(ConnectionStatus::Connected->value)
-        ->and($fresh->last_tested_at)->not->toBeNull();
+        ->and($fresh->last_synced_at)->not->toBeNull()
+        ->and($fresh->last_tested_at)->toBeNull();
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

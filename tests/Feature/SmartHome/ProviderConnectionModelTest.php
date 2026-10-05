@@ -31,6 +31,7 @@ test('provider_connections table has all required columns', function () {
         ->toContain('encrypted_credentials')
         ->toContain('status')
         ->toContain('last_tested_at')
+        ->toContain('last_synced_at')
         ->toContain('created_at')
         ->toContain('updated_at');
 });
@@ -270,13 +271,21 @@ test('ProviderType reserved cases are absent from known_providers config', funct
 // ConnectionStatus enum
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('ConnectionStatus values returns all three status strings', function () {
+test('ConnectionStatus values returns all status strings including PRV-02 additions', function () {
     $values = ConnectionStatus::values();
 
+    // Legacy values (kept for backward compat with existing data and mobile clients)
     expect($values)->toContain('connected')
         ->toContain('unreachable')
-        ->toContain('unknown')
-        ->toHaveCount(3);
+        ->toContain('unknown');
+
+    // PRV-02 additions (ADR-045 Decision 5)
+    expect($values)->toContain('pending')
+        ->toContain('connecting')
+        ->toContain('unreachable_host')
+        ->toContain('unreachable_credentials')
+        ->toContain('revoked')
+        ->toHaveCount(8);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
