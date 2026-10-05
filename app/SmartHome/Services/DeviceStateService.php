@@ -94,6 +94,10 @@ final class DeviceStateService
             return null;
         }
 
+        if (! $this->canReadServerSide($device)) {
+            return null;
+        }
+
         try {
             $adapter = $this->resolver->forProvider($device->provider);
             $result = $adapter->readStatus($connection, $device->provider_device_id);

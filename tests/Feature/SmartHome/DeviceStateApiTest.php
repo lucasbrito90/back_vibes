@@ -399,6 +399,29 @@ test('a device-side provider device is never polled server-side', function () {
     Http::assertNothingSent();
 });
 
+test('readFromProvider called directly on a device-side provider returns null without polling', function () {
+    Http::fake();
+
+    $user = dstUser();
+    $device = Device::factory()->create([
+        'user_id' => $user->id,
+        'provider_connection_id' => dstGhConnection($user)->id,
+        'provider' => ProviderType::GoogleHome->value,
+        'state' => null,
+        'state_read_at' => null,
+    ]);
+
+    $result = app(DeviceStateService::class)->readFromProvider($device);
+
+    expect($result)->toBeNull();
+
+    Http::assertNothingSent();
+
+    $fresh = $device->fresh();
+    expect($fresh->state)->toBeNull()
+        ->and($fresh->state_read_at)->toBeNull();
+});
+
 test('a device-side provider reports its stored client-observed state with freshness', function () {
     config(['smart_home.device_state.ttl_seconds' => 300]);
 
