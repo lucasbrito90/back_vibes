@@ -21,7 +21,7 @@ class ProviderConnectionResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'provider' => $this->provider,
-            'config' => $this->config,
+            'config' => $this->config !== [] ? $this->config : (object) [],
             'status' => $this->status,
             'last_tested_at' => $this->last_tested_at?->toISOString(),
             'last_synced_at' => $this->last_synced_at?->toISOString(),
