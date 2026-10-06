@@ -5,13 +5,19 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ExecuteDeviceCommandRequest;
 use App\Http\Requests\StoreDeviceRequest;
 use App\Http\Requests\UpdateDeviceRequest;
 use App\Http\Resources\DeviceDetailResource;
 use App\Http\Resources\DeviceResource;
 use App\Models\Device;
 use App\Models\ProviderConnection;
+use App\SmartHome\Canonical\CapabilityId;
+use App\SmartHome\Canonical\Operation;
 use App\SmartHome\DeviceStatus;
+use App\SmartHome\Exceptions\ProviderCommandFailedException;
+use App\SmartHome\Exceptions\UnsupportedSmartHomeActionException;
+use App\SmartHome\Services\DeviceCommandService;
 use App\SmartHome\Services\DeviceStateService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
@@ -100,6 +106,46 @@ class DeviceController extends Controller
         $device->save();
 
         return new DeviceResource($device);
+    }
+
+    /**
+     * Execute a direct canonical capability command on a device (DEV-02).
+     *
+     * POST /api/devices/{device}/commands
+     *
+     * Validates the canonical command against the device's declared capabilities
+     * before any provider call (see ExecuteDeviceCommandRequest). The
+     * server-side/device-side split mirrors SceneDispatchService: providers that
+     * do not declare ServerSideExecution receive a `client_execute` instruction
+     * back — the backend performs no provider call for them.
+     */
+    public function commands(
+        ExecuteDeviceCommandRequest $request,
+        Device $device,
+        DeviceCommandService $commandService,
+    ): JsonResponse {
+        $this->authorize('view', $device);
+
+        try {
+            $result = $commandService->execute(
+                $device,
+                CapabilityId::from((string) $request->input('capability_id')),
+                Operation::from((string) $request->input('operation')),
+                is_array($request->input('parameters')) ? $request->input('parameters') : [],
+            );
+        } catch (UnsupportedSmartHomeActionException) {
+            return response()->json(
+                ['message' => 'This operation is not supported by the device provider.'],
+                422,
+            );
+        } catch (ProviderCommandFailedException $e) {
+            return response()->json(
+                ['message' => 'The provider could not complete the command.'],
+                502,
+            );
+        }
+
+        return response()->json(['data' => ['status' => $result->status]]);
     }
 
     public function destroy(Request $request, Device $device): JsonResponse
