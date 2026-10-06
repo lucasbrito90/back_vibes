@@ -78,12 +78,20 @@ final readonly class DeviceStateSnapshot
     }
 
     /**
-     * @return array{values: array<string, mixed>, read_at: string|null, freshness: string}
+     * `values` is cast to an object so the wire type does not change with
+     * cardinality: `DeviceState::$values` is a map keyed by capability id, and
+     * `json_encode` renders an empty PHP array as `[]`, so a device with no
+     * values shipped a JSON array where every populated device ships an object.
+     * A client typing the field as a map then fails on exactly the stateless
+     * devices — and the unknown case is the common one, since `?? []` is taken
+     * whenever state was never read.
+     *
+     * @return array{values: object|array<string, mixed>, read_at: string|null, freshness: string}
      */
     public function toArray(): array
     {
         return [
-            'values' => $this->state?->values ?? [],
+            'values' => $this->state?->values ?: (object) [],
             'read_at' => $this->state?->readAt->format(DateTimeInterface::ATOM),
             'freshness' => $this->freshness->value,
         ];
