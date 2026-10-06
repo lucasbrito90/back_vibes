@@ -684,3 +684,92 @@ test('user cannot update another users google_home connection', function () {
 
     expect($bobConn->fresh()->name)->toBe('Bob GH');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Config serialization contract — empty config must be JSON object, not array
+// Fixes: google_home empty config returned "[]" instead of "{}", breaking
+// kotlinx.serialization which expects Map<String,String> (object, not array).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('google_home connection with empty config serializes config as JSON object not array', function () {
+    $user = pcUser('fb-pc-cfg-obj-gh');
+
+    $conn = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'provider' => 'google_home',
+        'config' => [],
+        'encrypted_credentials' => null,
+    ]);
+
+    pcAuth($user);
+
+    $response = $this->getJson("/api/provider-connections/{$conn->id}", pcHeaders())->assertOk();
+
+    // The raw JSON body must contain `"config":{}` — an object — never `"config":[]`.
+    $rawJson = $response->getContent();
+    expect($rawJson)->toContain('"config":{}')
+        ->and($rawJson)->not->toContain('"config":[]');
+});
+
+test('google_home connection with empty config never returns config as JSON array', function () {
+    $user = pcUser('fb-pc-cfg-noarr-gh');
+
+    $conn = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'provider' => 'google_home',
+        'config' => [],
+        'encrypted_credentials' => null,
+    ]);
+
+    pcAuth($user);
+
+    $response = $this->getJson("/api/provider-connections/{$conn->id}", pcHeaders())->assertOk();
+
+    expect($response->getContent())->not->toContain('"config":[]');
+});
+
+test('home_assistant connection with non-empty config preserves object shape', function () {
+    $user = pcUser('fb-pc-cfg-nonempty-ha');
+
+    $conn = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'provider' => ProviderType::HomeAssistant->value,
+        'config' => ['base_url' => 'https://ha.example.test'],
+    ]);
+
+    pcAuth($user);
+
+    $response = $this->getJson("/api/provider-connections/{$conn->id}", pcHeaders())->assertOk();
+
+    expect($response->json('data.config'))->toBe(['base_url' => 'https://ha.example.test'])
+        ->and($response->getContent())->not->toContain('"config":[]');
+});
+
+test('provider connection resource fields are unchanged by the config serialization fix', function () {
+    $user = pcUser('fb-pc-cfg-fields-gh');
+
+    $conn = ProviderConnection::factory()->create([
+        'user_id' => $user->id,
+        'provider' => 'google_home',
+        'name' => 'My Google Home',
+        'config' => [],
+        'encrypted_credentials' => null,
+        'status' => ConnectionStatus::Pending->value,
+    ]);
+
+    pcAuth($user);
+
+    $data = $this->getJson("/api/provider-connections/{$conn->id}", pcHeaders())
+        ->assertOk()
+        ->json('data');
+
+    expect($data['id'])->toBe($conn->id)
+        ->and($data['name'])->toBe('My Google Home')
+        ->and($data['provider'])->toBe('google_home')
+        ->and($data['status'])->toBe(ConnectionStatus::Pending->value)
+        ->and($data)->toHaveKey('last_tested_at')
+        ->and($data)->toHaveKey('last_synced_at')
+        ->and($data)->toHaveKey('created_at')
+        ->and($data)->toHaveKey('updated_at')
+        ->and($data)->not->toHaveKey('encrypted_credentials');
+});
