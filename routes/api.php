@@ -54,6 +54,8 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::post('provider-connections/{providerConnection}/report-health', [ProviderConnectionController::class, 'reportHealth'])
         ->name('provider-connections.report-health');
     Route::apiResource('devices', DeviceController::class);
+    Route::post('devices/{device}/commands', [DeviceController::class, 'commands'])
+        ->name('devices.commands');
     Route::post('scene-action-executions/report', [SceneActionExecutionReportController::class, 'store'])
         ->name('scene-action-executions.report');
     Route::apiResource('scenes', SceneController::class);
