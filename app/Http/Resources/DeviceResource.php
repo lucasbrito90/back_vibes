@@ -20,10 +20,15 @@ class DeviceResource extends JsonResource
             'provider_device_id' => $this->provider_device_id,
             'status' => $this->status,
             'last_seen_at' => $this->last_seen_at?->toISOString(),
-            'metadata' => $this->metadata,
+            // Both of these are maps, and an empty PHP array encodes as `[]`
+            // rather than `{}` — so the wire type would otherwise change with
+            // cardinality. `null` is preserved: for capabilities it means
+            // "never derived" (unknown), which a client must not confuse with
+            // `{}`, "declares none". Only the empty-map case is rewritten.
+            'metadata' => $this->metadata === [] ? (object) [] : $this->metadata,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
-            'capabilities' => $this->capabilities,
+            'capabilities' => $this->capabilities === [] ? (object) [] : $this->capabilities,
             // DEV-01: canonical functional state (ADR-037 §6), nested under the
             // Device as card 166's model requires rather than on an endpoint of
             // its own, so there is one read contract for state and not two.

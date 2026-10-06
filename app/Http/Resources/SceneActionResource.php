@@ -16,7 +16,10 @@ class SceneActionResource extends JsonResource
             'scene_id' => $this->scene_id,
             'device_id' => $this->device_id,
             'action_type' => $this->action_type,
-            'parameters' => $this->parameters,
+            // Canonical parameters are a map (`{"value": …}`); an empty PHP
+            // array would encode as `[]` and change the wire type with
+            // cardinality. `null` (no parameters at all) is preserved.
+            'parameters' => $this->parameters === [] ? (object) [] : $this->parameters,
             'sort_order' => $this->sort_order,
             'delay_seconds' => $this->delay_seconds,
             'created_at' => $this->created_at?->toISOString(),

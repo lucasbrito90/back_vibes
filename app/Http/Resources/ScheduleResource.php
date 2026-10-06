@@ -16,7 +16,10 @@ class ScheduleResource extends JsonResource
             'timezone' => $this->timezone,
             'start_time' => $this->start_time?->toISOString(),
             'recurrence_type' => $this->recurrence_type,
-            'recurrence_config' => $this->recurrence_config,
+            // A recurrence config is a map; an empty PHP array would encode as
+            // `[]` and change the wire type with cardinality. `null` (no
+            // recurrence configured) is preserved.
+            'recurrence_config' => $this->recurrence_config === [] ? (object) [] : $this->recurrence_config,
             'is_enabled' => $this->is_enabled,
             'next_run_at' => $this->next_run_at?->toISOString(),
             'last_run_at' => $this->last_run_at?->toISOString(),
