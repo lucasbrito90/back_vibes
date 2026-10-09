@@ -143,7 +143,7 @@ test('rejected admin cannot upload assets', function (): void {
         ->assertJson(['message' => 'Admin access is not approved.']);
 });
 
-test('approved admin can upload sound audio', function (): void {
+test('sound audio can no longer be uploaded through the generic upload endpoint', function (): void {
     $admin = approvedAdmin();
     $sound = Sound::query()->create([
         'name' => 'Rain',
@@ -156,23 +156,16 @@ test('approved admin can upload sound audio', function (): void {
 
     $file = UploadedFile::fake()->create('clip.mp3', 50)->mimeType('audio/mpeg');
 
-    $response = $this->post('/api/admin/uploads', [
+    $this->post('/api/admin/uploads', [
         'entity_type' => 'sound',
         'entity_id' => $sound->id,
         'asset_type' => 'audio',
         'file' => $file,
-    ], uploadHeaders());
+    ], uploadHeaders())
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['asset_type']);
 
-    $response->assertCreated()
-        ->assertJsonPath('data.entity_type', 'sound')
-        ->assertJsonPath('data.asset_type', 'audio')
-        ->assertJsonPath('data.mime_type', 'audio/mpeg')
-        ->assertJsonPath('data.key', 'sounds/'.$sound->id.'/audio/original.mp3');
-
-    expect($response->json('data.url'))
-        ->toStartWith('https://ixora-buckets.tor1.cdn.digitaloceanspaces.com/sounds/'.$sound->id.'/audio/original.mp3');
-
-    Storage::disk('spaces')->assertExists('sounds/'.$sound->id.'/audio/original.mp3');
+    expect(Storage::disk('spaces')->allFiles())->toBe([]);
 });
 
 test('approved admin can upload sound thumbnail image', function (): void {
@@ -282,7 +275,7 @@ test('invalid asset_type for entity fails validation', function (): void {
         ->assertJsonValidationErrors(['asset_type']);
 });
 
-test('invalid MIME for sound audio fails validation', function (): void {
+test('invalid MIME for sound thumbnail fails validation', function (): void {
     $admin = approvedAdmin();
     $sound = Sound::query()->create([
         'name' => 'S',
@@ -293,12 +286,12 @@ test('invalid MIME for sound audio fails validation', function (): void {
 
     $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->once()->with('tok')->andReturn(jwtForUploadUser($admin)));
 
-    $file = UploadedFile::fake()->create('photo.jpg', 8)->mimeType('image/jpeg');
+    $file = UploadedFile::fake()->create('clip.mp3', 8)->mimeType('audio/mpeg');
 
     $this->post('/api/admin/uploads', [
         'entity_type' => 'sound',
         'entity_id' => $sound->id,
-        'asset_type' => 'audio',
+        'asset_type' => 'thumbnail',
         'file' => $file,
     ], uploadHeaders())
         ->assertUnprocessable()
@@ -316,12 +309,12 @@ test('file exceeding max size fails validation', function (): void {
 
     $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->once()->with('tok')->andReturn(jwtForUploadUser($admin)));
 
-    $file = UploadedFile::fake()->create('big.mp3', 25601)->mimeType('audio/mpeg');
+    $file = UploadedFile::fake()->create('big.png', 5121)->mimeType('image/png');
 
     $this->post('/api/admin/uploads', [
         'entity_type' => 'sound',
         'entity_id' => $sound->id,
-        'asset_type' => 'audio',
+        'asset_type' => 'thumbnail',
         'file' => $file,
     ], uploadHeaders())
         ->assertUnprocessable()
@@ -333,12 +326,12 @@ test('missing entity id fails validation', function (): void {
 
     $this->mock(Auth::class, fn ($m) => $m->shouldReceive('verifyIdToken')->once()->with('tok')->andReturn(jwtForUploadUser($admin)));
 
-    $file = UploadedFile::fake()->create('clip.mp3', 10)->mimeType('audio/mpeg');
+    $file = UploadedFile::fake()->create('thumb.png', 10)->mimeType('image/png');
 
     $this->post('/api/admin/uploads', [
         'entity_type' => 'sound',
         'entity_id' => 999_999,
-        'asset_type' => 'audio',
+        'asset_type' => 'thumbnail',
         'file' => $file,
     ], uploadHeaders())
         ->assertUnprocessable()

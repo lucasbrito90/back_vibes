@@ -13,6 +13,7 @@ class VibeSoundResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'file_url' => $this->file_url,
+            'audio_version' => $this->audio_version,
             'thumbnail_url' => $this->thumbnail_url,
             'category' => $this->category,
             'duration' => $this->duration,

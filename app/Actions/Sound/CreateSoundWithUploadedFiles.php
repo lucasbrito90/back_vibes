@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Actions\Sound;
 
 use App\Models\Sound;
+use App\Services\Audio\SoundAudioStatus;
+use App\Services\Audio\SoundAudioSubmission;
 use App\Services\Storage\DigitalOceanSpacesService;
+use App\Services\Storage\StorageDeletionService;
 use App\Services\Storage\StoragePathBuilder;
 use App\Services\Storage\UploadAssetValidator;
 use Illuminate\Http\UploadedFile;
@@ -17,10 +20,16 @@ final class CreateSoundWithUploadedFiles
     public function __construct(
         private DigitalOceanSpacesService $spaces,
         private StoragePathBuilder $paths,
+        private SoundAudioSubmission $audioSubmission,
+        private StorageDeletionService $deletion,
     ) {}
 
     /**
-     * Persist a Sound, upload canonical audio + thumbnail to Spaces, assign CDN URLs.
+     * Persist a Sound, publish its thumbnail, and enqueue the audio for asynchronous processing.
+     *
+     * The sound is created with `audio_status = pending` and an empty `file_url`: the audio only becomes
+     * playable when the worker has transcoded, validated and published a versioned distribution asset.
+     * If the audio cannot be enqueued the whole creation is rolled back so the admin can simply retry.
      *
      * @param  array{
      *     name: string,
@@ -37,59 +46,74 @@ final class CreateSoundWithUploadedFiles
         UploadAssetValidator::assertValidSoundAudio($audioFile);
         UploadAssetValidator::assertValidSoundThumbnail($thumbnailFile);
 
-        $audioExtension = UploadAssetValidator::resolveExtension($audioFile, 'sound', 'audio');
         $thumbExtension = UploadAssetValidator::resolveExtension($thumbnailFile, 'sound', 'thumbnail');
-
-        if ($audioExtension === null || $thumbExtension === null) {
+        if ($thumbExtension === null) {
             throw new \RuntimeException('Resolved extension unexpectedly null after upload validation.');
         }
 
-        /** @var list<string> $uploadedKeys */
-        $uploadedKeys = [];
+        $sound = $this->createSoundWithThumbnail($metadata, $thumbnailFile, $thumbExtension);
 
         try {
-            return DB::transaction(function () use (
-                $metadata,
-                $audioFile,
-                $thumbnailFile,
-                $audioExtension,
-                $thumbExtension,
-                &$uploadedKeys,
-            ): Sound {
+            $this->audioSubmission->submit($sound, $audioFile);
+        } catch (Throwable $e) {
+            $this->rollback($sound);
+
+            throw $e;
+        }
+
+        /** @var Sound $fresh */
+        $fresh = $sound->fresh();
+
+        return $fresh;
+    }
+
+    /**
+     * @param  array{name: string, category: string, duration_seconds: int|null, tags: list<string>, is_active: bool}  $metadata
+     */
+    private function createSoundWithThumbnail(array $metadata, UploadedFile $thumbnailFile, string $thumbExtension): Sound
+    {
+        $thumbKey = null;
+
+        try {
+            return DB::transaction(function () use ($metadata, $thumbnailFile, $thumbExtension, &$thumbKey): Sound {
                 $sound = Sound::query()->create([
                     'name' => $metadata['name'],
                     'category' => $metadata['category'],
                     'file_url' => '',
+                    'audio_status' => SoundAudioStatus::Pending->value,
                     'thumbnail_url' => null,
                     'duration' => $metadata['duration_seconds'],
                     'tags' => $metadata['tags'],
                     'is_active' => $metadata['is_active'],
                 ]);
 
-                $audioKey = $this->paths->soundAudio($sound->id, $audioExtension);
                 $thumbKey = $this->paths->soundThumbnail($sound->id, $thumbExtension);
-
-                $this->spaces->putFile($audioKey, $audioFile);
-                $uploadedKeys[] = $audioKey;
                 $this->spaces->putFile($thumbKey, $thumbnailFile);
-                $uploadedKeys[] = $thumbKey;
 
-                $sound->update([
-                    'file_url' => $this->spaces->publicUrl($audioKey),
-                    'thumbnail_url' => $this->spaces->publicUrl($thumbKey),
-                ]);
+                $sound->update(['thumbnail_url' => $this->spaces->publicUrl($thumbKey)]);
 
-                /** @var Sound $fresh */
-                $fresh = $sound->fresh();
-
-                return $fresh;
+                return $sound;
             });
         } catch (Throwable $e) {
-            foreach ($uploadedKeys as $key) {
-                $this->spaces->delete($key);
+            if (is_string($thumbKey)) {
+                $this->spaces->delete($thumbKey);
             }
 
             throw $e;
         }
+    }
+
+    /**
+     * Undo a creation whose audio could not be enqueued. Deletions are recorded durably first, so a failure
+     * while cleaning Spaces is retried instead of leaving orphans.
+     */
+    private function rollback(Sound $sound): void
+    {
+        DB::transaction(function () use ($sound): void {
+            $this->deletion->scheduleForSound($sound);
+            $sound->delete();
+        });
+
+        $this->deletion->runPending();
     }
 }

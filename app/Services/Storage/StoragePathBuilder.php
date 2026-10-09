@@ -6,11 +6,37 @@ namespace App\Services\Storage;
 
 final class StoragePathBuilder
 {
+    /**
+     * Legacy, unversioned audio key. Kept only to resolve/clean up pre-versioning objects: nothing may
+     * write here anymore (new audio goes through {@see self::soundAudioSource()} / {@see self::soundAudioDistribution()}).
+     */
     public function soundAudio(int|string $soundId, string $extension): string
     {
         $ext = ltrim($extension, '.');
 
         return sprintf('sounds/%s/audio/original.%s', $soundId, $ext);
+    }
+
+    /** Every audio object of a sound (legacy, sources, distributions) lives under this prefix. */
+    public function soundAudioPrefix(int|string $soundId): string
+    {
+        return sprintf('sounds/%s/audio/', $soundId);
+    }
+
+    /** Private upload as received from the admin, one immutable object per reserved version. */
+    public function soundAudioSource(int|string $soundId, int $version, string $extension): string
+    {
+        $ext = ltrim($extension, '.');
+
+        return sprintf('sounds/%s/audio/sources/v%d/source.%s', $soundId, $version, $ext);
+    }
+
+    /** Public, immutable distribution asset for one published version. */
+    public function soundAudioDistribution(int|string $soundId, int $version, string $extension): string
+    {
+        $ext = ltrim($extension, '.');
+
+        return sprintf('sounds/%s/audio/v%d/distribution.%s', $soundId, $version, $ext);
     }
 
     public function soundThumbnail(int|string $soundId, string $extension): string
