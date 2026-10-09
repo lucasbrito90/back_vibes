@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests;
 
+use App\Services\Audio\SoundAudioStatus;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -48,7 +49,7 @@ class SyncPresetVibeSoundsRequest extends FormRequest
     {
         return [
             'sounds' => ['required', 'array'],
-            'sounds.*.sound_id' => ['required', 'integer', 'distinct', Rule::exists('sounds', 'id')],
+            'sounds.*.sound_id' => ['required', 'integer', 'distinct', Rule::exists('sounds', 'id')->whereIn('audio_status', SoundAudioStatus::playableValues())],
             'sounds.*.play_mode' => ['sometimes', 'string', Rule::in(['loop', 'once', 'interval'])],
             'sounds.*.volume' => ['sometimes', 'integer', 'min:0', 'max:100'],
             'sounds.*.sort_order' => ['sometimes', 'integer', 'min:0'],

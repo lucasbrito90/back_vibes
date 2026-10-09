@@ -5,12 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Actions\Sound\CreateSoundWithUploadedFiles;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\IndexSoundRequest;
+use App\Http\Requests\ReplaceSoundAudioRequest;
 use App\Http\Requests\StoreSoundRequest;
 use App\Http\Requests\UpdateSoundRequest;
 use App\Http\Resources\SoundResource;
+use App\Jobs\Storage\PurgeStorageDeletionTasks;
 use App\Models\Sound;
 use App\Queries\SoundCatalogQuery;
-use App\Services\Storage\SafeAssetDeletionService;
+use App\Services\Audio\AudioDispatchException;
+use App\Services\Audio\SoundAudioSubmission;
+use App\Services\Storage\StorageDeletionService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -29,7 +33,7 @@ class SoundController extends Controller
         $this->authorize('viewAny', Sound::class);
 
         $catalog = new SoundCatalogQuery($request, $request->user());
-        $query = $catalog->build();
+        $query = $catalog->build()->with('latestAudioRevision');
 
         if ($catalog->wantsPagination()) {
             $paginator = $query->paginate($catalog->perPage());
@@ -46,7 +50,7 @@ class SoundController extends Controller
     {
         $this->authorize('view', $sound);
 
-        return new SoundResource($sound);
+        return new SoundResource($sound->load('latestAudioRevision'));
     }
 
     public function store(StoreSoundRequest $request, CreateSoundWithUploadedFiles $createSound): JsonResponse
@@ -74,9 +78,13 @@ class SoundController extends Controller
                 : true,
         ];
 
-        $sound = $createSound($metadata, $audio, $thumbnail);
+        try {
+            $sound = $createSound($metadata, $audio, $thumbnail);
+        } catch (AudioDispatchException $e) {
+            return $this->audioNotEnqueued($e);
+        }
 
-        return (new SoundResource($sound))->response()->setStatusCode(201);
+        return (new SoundResource($sound->load('latestAudioRevision')))->response()->setStatusCode(201);
     }
 
     public function update(UpdateSoundRequest $request, Sound $sound): SoundResource
@@ -90,14 +98,16 @@ class SoundController extends Controller
             }
         }
 
+        // `file_url` is derived from the published audio version. Clients may still echo the current value
+        // (the admin form does) or send null, but can never change it here: new audio goes through
+        // POST /api/admin/sounds/{sound}/audio so published bytes/URLs are never overwritten.
         if (array_key_exists('file_url', $validated)) {
             $fileUrl = trim((string) ($validated['file_url'] ?? ''));
-            if ($fileUrl === '') {
+            if ($fileUrl !== '' && $fileUrl !== trim((string) $sound->file_url)) {
                 throw ValidationException::withMessages([
-                    'file_url' => ['file_url cannot be empty.'],
+                    'file_url' => ['file_url cannot be changed directly. Upload a new audio file instead.'],
                 ]);
             }
-            $payload['file_url'] = $fileUrl;
         }
 
         if (array_key_exists('thumbnail_url', $validated)) {
@@ -125,10 +135,29 @@ class SoundController extends Controller
             $sound->update($payload);
         }
 
-        return new SoundResource($sound->fresh());
+        return new SoundResource($sound->fresh()->load('latestAudioRevision'));
     }
 
-    public function destroy(Sound $sound, SafeAssetDeletionService $safeAssetDeletion): JsonResponse
+    public function replaceAudio(
+        ReplaceSoundAudioRequest $request,
+        Sound $sound,
+        SoundAudioSubmission $submission,
+    ): JsonResponse {
+        /** @var UploadedFile $audio */
+        $audio = $request->file('audio_file');
+
+        try {
+            $submission->submit($sound, $audio);
+        } catch (AudioDispatchException $e) {
+            return $this->audioNotEnqueued($e);
+        }
+
+        return (new SoundResource($sound->fresh()->load('latestAudioRevision')))
+            ->response()
+            ->setStatusCode(202);
+    }
+
+    public function destroy(Sound $sound, StorageDeletionService $deletion): JsonResponse
     {
         if ($this->soundIsUsedOnAnyVibe($sound)) {
             Log::warning('Sound delete blocked: sound is attached to one or more vibes', ['sound_id' => $sound->id]);
@@ -138,25 +167,39 @@ class SoundController extends Controller
             ], 409);
         }
 
-        $urls = [];
-        foreach ([$sound->file_url, $sound->thumbnail_url] as $candidate) {
-            if (is_string($candidate) && trim($candidate) !== '') {
-                $urls[] = trim($candidate);
-            }
+        // Record what must disappear from Spaces in the same transaction that removes the row, so a crash
+        // (or Spaces outage) after commit can never lose track of the objects: pending tasks are retried.
+        /** @var list<int> $taskIds */
+        $taskIds = DB::transaction(function () use ($sound, $deletion): array {
+            $ids = array_map(static fn ($task): int => $task->id, $deletion->scheduleForSound($sound));
+            $sound->delete();
+
+            return $ids;
+        });
+
+        $deletion->runPending();
+
+        if ($deletion->hasPending($taskIds)) {
+            Log::warning('Sound deleted from DB but Spaces cleanup is still pending', ['sound_id' => $sound->id]);
+            PurgeStorageDeletionTasks::dispatch()->delay(now()->addMinute());
+
+            return response()->json([
+                'message' => 'Sound deleted. Storage cleanup is pending and will be retried automatically.',
+                'storage_cleanup' => 'pending',
+            ]);
         }
 
-        DB::transaction(static fn () => $sound->delete());
+        return response()->json(['message' => 'Sound deleted.', 'storage_cleanup' => 'completed']);
+    }
 
-        foreach ($safeAssetDeletion->deleteUrlsIfUnreferenced($urls) as $url => $status) {
-            if ($status === SafeAssetDeletionService::STATUS_FAILED) {
-                Log::warning('Sound deleted from DB but Spaces object cleanup failed', [
-                    'url' => $url,
-                    'status' => $status,
-                ]);
-            }
-        }
+    private function audioNotEnqueued(AudioDispatchException $e): JsonResponse
+    {
+        Log::error('Audio processing could not be enqueued', ['message' => $e->getMessage()]);
 
-        return response()->json(['message' => 'Sound deleted.']);
+        return response()->json([
+            'message' => 'Audio processing could not be enqueued. Nothing was published; please try again.',
+            'code' => 'audio_not_enqueued',
+        ], 503);
     }
 
     private function soundIsUsedOnAnyVibe(Sound $sound): bool
