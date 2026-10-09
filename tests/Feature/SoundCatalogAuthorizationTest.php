@@ -160,10 +160,14 @@ test('approved admin can POST /api/admin/sounds with audio and thumbnail uploads
 
     $sound = Sound::query()->where('name', 'Admin sound')->first();
     expect($sound)->not->toBeNull()
-        ->and($sound->file_url)->toStartWith('https://ixora-buckets.tor1.cdn.digitaloceanspaces.com/sounds/'.$sound->id.'/audio/original.mp3')
+        ->and($sound->file_url)->toBe('https://ixora-buckets.tor1.cdn.digitaloceanspaces.com/sounds/'.$sound->id.'/audio/v1/distribution.m4a')
+        ->and($sound->audio_version)->toBe(1)
         ->and($sound->thumbnail_url)->toStartWith('https://ixora-buckets.tor1.cdn.digitaloceanspaces.com/sounds/'.$sound->id.'/thumbnail/thumbnail.png');
 
-    Storage::disk('spaces')->assertExists('sounds/'.$sound->id.'/audio/original.mp3');
+    // The test queue is sync, so the (faked) worker ran inline: source stays private, distribution is published.
+    Storage::disk('spaces')->assertExists('sounds/'.$sound->id.'/audio/sources/v1/source.mp3');
+    Storage::disk('spaces')->assertExists('sounds/'.$sound->id.'/audio/v1/distribution.m4a');
+    Storage::disk('spaces')->assertMissing('sounds/'.$sound->id.'/audio/original.mp3');
     Storage::disk('spaces')->assertExists('sounds/'.$sound->id.'/thumbnail/thumbnail.png');
 });
 

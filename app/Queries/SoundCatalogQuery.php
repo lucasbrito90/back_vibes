@@ -7,6 +7,7 @@ namespace App\Queries;
 use App\Http\Requests\IndexSoundRequest;
 use App\Models\Sound;
 use App\Models\User;
+use App\Services\Audio\SoundAudioStatus;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
@@ -64,6 +65,11 @@ final class SoundCatalogQuery
      */
     private function applyFilters(Builder $query): void
     {
+        if (! $this->canViewInactive()) {
+            // Sounds whose first audio is still processing have nothing playable to offer yet.
+            $query->whereIn('audio_status', SoundAudioStatus::playableValues());
+        }
+
         $search = $this->request->searchTerm();
         if ($search !== null) {
             $escaped = addcslashes($search, '%_\\');

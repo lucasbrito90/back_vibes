@@ -49,7 +49,20 @@ RUN chmod +x /usr/local/bin/install-php-extensions /usr/local/bin/composer \
 	zip \
 	opcache \
 	opentelemetry \
-	&& php --ri opentelemetry
+	pcntl \
+	&& php --ri opentelemetry \
+	&& php --ri pcntl
+
+# FFmpeg/ffprobe only for the dedicated audio worker (AUDIO-03C): App Platform injects BUILD_TIME env as build
+# args, so the `audio-worker` component sets WITH_FFMPEG=true and every other component keeps the slim image.
+ARG WITH_FFMPEG=false
+RUN if [ "$WITH_FFMPEG" = "true" ]; then \
+		apt-get update \
+		&& apt-get install -y --no-install-recommends ffmpeg \
+		&& rm -rf /var/lib/apt/lists/* \
+		&& ffmpeg -version | head -n 1 \
+		&& ffprobe -version | head -n 1; \
+	fi
 
 # Opcache tuned for container/FPM-style FrankenPHP worker lifecycle
 ENV PHP_OPCACHE_ENABLE="1" \

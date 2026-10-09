@@ -2,8 +2,13 @@
 
 namespace App\Providers;
 
+use App\Services\Audio\AudioTranscoding;
+use App\Services\Audio\FfmpegAudioTranscoder;
+use App\Services\Audio\SoundAudioRecovery;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -14,7 +19,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(AudioTranscoding::class, FfmpegAudioTranscoder::class);
     }
 
     /**
@@ -23,6 +28,34 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureRateLimiting();
+        $this->configureAudioRecovery();
+    }
+
+    /**
+     * The dedicated audio worker sweeps for lost/stuck revisions between jobs, so no extra process or cron is
+     * needed. Enabled only where AUDIO_RECOVERY_ON_WORKER_LOOP=true (the audio worker component).
+     */
+    private function configureAudioRecovery(): void
+    {
+        if (! config('audio.recovery.on_worker_loop')) {
+            return;
+        }
+
+        $lastRun = 0;
+
+        Queue::looping(function () use (&$lastRun): void {
+            $interval = (int) config('audio.recovery.worker_loop_interval_seconds');
+            if (time() - $lastRun < $interval) {
+                return;
+            }
+            $lastRun = time();
+
+            try {
+                $this->app->make(SoundAudioRecovery::class)->run();
+            } catch (\Throwable $e) {
+                Log::error('audio.recovery.sweep_failed', ['message' => $e->getMessage()]);
+            }
+        });
     }
 
     private function configureRateLimiting(): void

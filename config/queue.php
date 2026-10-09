@@ -44,6 +44,17 @@ return [
             'after_commit' => false,
         ],
 
+        // Same `jobs` table as `database`, but a retry_after larger than the audio job timeout so a job
+        // that is still transcoding is never re-delivered (see config/audio.php).
+        'database_audio' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => env('AUDIO_QUEUE_NAME', 'audio'),
+            'retry_after' => (int) env('AUDIO_QUEUE_RETRY_AFTER', 900),
+            'after_commit' => true,
+        ],
+
         'beanstalkd' => [
             'driver' => 'beanstalkd',
             'host' => env('BEANSTALKD_QUEUE_HOST', 'localhost'),

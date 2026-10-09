@@ -80,6 +80,7 @@ Route::middleware(['firebase.auth', 'throttle:api'])->group(function () {
     Route::middleware('admin.approved')->group(function () {
         Route::post('admin/sounds', [SoundController::class, 'store']);
         Route::post('sounds', [SoundController::class, 'store']);
+        Route::post('admin/sounds/{sound}/audio', [SoundController::class, 'replaceAudio']);
         Route::patch('sounds/{sound}', [SoundController::class, 'update']);
         Route::put('sounds/{sound}', [SoundController::class, 'update']);
         Route::delete('sounds/{sound}', [SoundController::class, 'destroy']);
